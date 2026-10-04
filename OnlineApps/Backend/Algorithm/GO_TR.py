@@ -1120,11 +1120,16 @@ def process_single_event(p_id, event, trans_name, states, places,check,session):
 
     # 3. Analyze replay results for deviations
     deviation_details = {}
+    violations = []
+    
     if replay_info.get('num_of_missing_token', 0) > 0:
-        deviation_details['type'] = 'missing_token'
-        deviation_details['missing_count'] = replay_info['num_of_missing_token']
-        deviation_details['activity'] = activity
+        violations.append({
+            'type': 'missing_token',
+            'missing_count': replay_info['num_of_missing_token'],
+            'activity': activity
+        })
         print(f"🚨 ALERT! [Case: {p_id}] [Type: missing_token] for activity '{activity}'")
+        
     if check == 'multi':
         # 4. Perform organizational conformance check
         rule = getActivityOrgRule(activity, session)
@@ -1161,12 +1166,17 @@ def process_single_event(p_id, event, trans_name, states, places,check,session):
                 org_deviations = []
                 if not isStructureConform: org_deviations.append('wrong_structure')
                 if not isTeamConform: org_deviations.append('wrong_team')
-                deviation_details['type'] = 'organizational'
-                deviation_details['org_issues'] = org_deviations
-                deviation_details['actor'] = actor
+                violations.append({
+                    'type': 'organizational',
+                    'org_issues': org_deviations,
+                    'actor': actor,
+                    'activity': activity
+                })
                 print(f"🚨 ALERT! [Case: {p_id}] [Type: organizational] by '{actor}' for '{activity}'")
     
-    if deviation_details:
+    if violations:
+        deviation_details['violations'] = violations
+        deviation_details['type'] = 'multiple' if len(violations) > 1 else violations[0]['type']
         return {"status": "deviation", **deviation_details}
     else:
         return {"status": "conforming", "activity": activity}

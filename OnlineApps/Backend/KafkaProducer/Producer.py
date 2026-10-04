@@ -437,7 +437,8 @@ def main():
         port=8100,
         reload=False,
         access_log=True,
-        log_level="info"
+        log_level="info",
+        timeout_keep_alive=60
     )
 
 if __name__ == '__main__':

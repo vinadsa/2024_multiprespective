@@ -569,21 +569,34 @@ class GOTRKafkaConsumer:
     def initialize_kafka_consumer(self,status):
         """Initialize Kafka consumer"""
         print(f"Initializing Kafka consumer with {status}")
+        
+        import uuid
+        current_kafka_config = self.kafka_config.copy()
+        
+        if status == 'reset':
+            # Create a completely new consumer group to ensure we don't pick up
+            # old committed offsets or buffered messages from the past run.
+            new_group = f"{current_kafka_config['group_id']}_reset_{uuid.uuid4().hex[:8]}"
+            current_kafka_config['group_id'] = new_group
+            print(f"Reset mode: Using new unique group_id: {new_group}")
+
         self.consumer = KafkaConsumer(
             'pm.test.events.raw',
-            **self.kafka_config,
-            auto_offset_reset='earliest' if status == 'reset' else 'latest',
-            enable_auto_commit=False if status == 'reset' else True
+            **current_kafka_config,
+            auto_offset_reset='latest',
+            enable_auto_commit=True
         )
-        if(status=='reset'):
-            # Poll to trigger partition assignment and wait for it
+        
+        if status == 'reset':
+            # By using a new group_id and auto_offset_reset='latest', Kafka naturally 
+            # ignores all existing messages and waits for new ones.
+            # We just poll once to join the group and assign partitions.
             print("Waiting for partition assignment...")
             while not self.consumer.assignment():
                 self.consumer.poll(timeout_ms=100)
 
             print(f"Assigned partitions: {self.consumer.assignment()}")
-            self.consumer.seek_to_beginning()
-            print('Kafka Consumer resetted succesfully!')
+            print('Kafka Consumer resetted to a completely CLEAN SLATE!')
         else:
             print("Kafka consumer continue/initialized successfully!")
         
@@ -776,17 +789,21 @@ class GOTRKafkaConsumer:
 
     def _update_anomaly_scores(self, p_id, deviation_details):
         """Update scores - MUST be called with state_lock held"""
-        deviation_type = deviation_details.get('type')
-
-        if deviation_type == 'missing_token':
-            self.anomaly_scores[p_id] += 1.0
-        elif deviation_type == 'organizational':
-            if 'wrong_structure' in deviation_details.get('org_issues', []):
-                self.anomaly_scores[p_id] += 0.8
-            if 'wrong_team' in deviation_details.get('org_issues', []):
-                self.anomaly_scores[p_id] += 0.5
-        elif deviation_type == 'unknown_activity':
-            self.unknown_activities[p_id].append(deviation_details.get('activity'))
+        violations = deviation_details.get('violations', [])
+        if not violations and deviation_details.get('type'):
+             violations = [deviation_details]
+             
+        for v in violations:
+            v_type = v.get('type')
+            if v_type == 'missing_token':
+                self.anomaly_scores[p_id] += 1.0
+            elif v_type == 'organizational':
+                if 'wrong_structure' in v.get('org_issues', []):
+                    self.anomaly_scores[p_id] += 0.8
+                if 'wrong_team' in v.get('org_issues', []):
+                    self.anomaly_scores[p_id] += 0.5
+            elif v_type == 'unknown_activity':
+                self.unknown_activities[p_id].append(v.get('activity'))
 
     def _send_deviation_alert_async(self, p_id, deviation_details):
         """Send alert - call OUTSIDE locks"""
@@ -801,6 +818,7 @@ class GOTRKafkaConsumer:
             "timestamp": datetime.now().isoformat(),
             "case_id": p_id,
             "deviation_type": deviation_details.get('type'),
+            "violations": deviation_details.get('violations', []),
             "details": deviation_details,
             "cumulative_score": current_score,
             "event_history": recent_history,

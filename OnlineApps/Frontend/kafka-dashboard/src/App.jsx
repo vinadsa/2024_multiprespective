@@ -9,6 +9,7 @@ const GOTRMonitor = () => {
   const [mode, setMode] = useState('online');
   const [conformance, setConformance] = useState('continue');
   const [configError, setConfigError] = useState('');
+  const [isConfiguring, setIsConfiguring] = useState(false);
 
   // Connection state
   const [connectionStatus, setConnectionStatus] = useState('disconnected');
@@ -37,6 +38,7 @@ const GOTRMonitor = () => {
   // Configure and start monitoring
   const handleConfigure = async () => {
     setConfigError('');
+    setIsConfiguring(true);
 
     try {
       // Send configuration to API
@@ -61,6 +63,8 @@ const GOTRMonitor = () => {
       }
     } catch (error) {
       setConfigError(`Configuration error: ${error.message}`);
+    } finally {
+      setIsConfiguring(false);
     }
   };
 
@@ -325,11 +329,70 @@ const GOTRMonitor = () => {
   if (!isConfigured) {
     return (
       <div className="configuration-container">
-        <div className="configuration-form">
-          <h1 className="configuration-title">GO-TR Monitor Configuration</h1>
-          <div>
-            <div className="form-group">
-              <label htmlFor="wsUrl">WebSocket URL:</label>
+        <div className="configuration-form modern-config">
+          <div className="config-header">
+            <h1 className="configuration-title">GO-TR Monitor</h1>
+            <p className="config-subtitle">Configure your real-time process mining engine</p>
+          </div>
+          
+          <div className="config-section">
+            <h3 className="section-title">1. Conformance Mode</h3>
+            <p className="section-desc">Select the depth of anomaly detection.</p>
+            <div className="card-group">
+              <div 
+                className={`config-card ${mode === 'online' ? 'selected' : ''}`}
+                onClick={() => setMode('online')}
+              >
+                <div className="card-header">
+                  <span className="card-icon">⏱️</span>
+                  <span className="card-title">Online (Control-Flow)</span>
+                </div>
+                <p className="card-desc">Standard mode. Evaluates if the event sequence follows the master Petri Net strictly (detects missing tokens or skipped tasks).</p>
+              </div>
+              <div 
+                className={`config-card ${mode === 'multi' ? 'selected' : ''}`}
+                onClick={() => setMode('multi')}
+              >
+                <div className="card-header">
+                  <span className="card-icon">🏢</span>
+                  <span className="card-title">Multi-organizational</span>
+                </div>
+                <p className="card-desc">Advanced mode. Evaluates control-flow PLUS organizational rules (validates if the actor has the correct Role and Team per the YAML config).</p>
+              </div>
+            </div>
+          </div>
+          
+          <div className="config-section">
+            <h3 className="section-title">2. Running Mode</h3>
+            <p className="section-desc">Choose how the engine handles existing history and data.</p>
+            <div className="card-group">
+              <div 
+                className={`config-card ${conformance === 'continue' ? 'selected' : ''}`}
+                onClick={() => setConformance('continue')}
+              >
+                <div className="card-header">
+                  <span className="card-icon">▶️</span>
+                  <span className="card-title">Continue</span>
+                </div>
+                <p className="card-desc">Resume from where it left off. Preserves existing Replay Images in Neo4j and resumes Kafka from the last committed offset.</p>
+              </div>
+              <div 
+                className={`config-card ${conformance === 'reset' ? 'selected' : ''}`}
+                onClick={() => setConformance('reset')}
+              >
+                <div className="card-header">
+                  <span className="card-icon">🔄</span>
+                  <span className="card-title">Reset (Clean Slate)</span>
+                </div>
+                <p className="card-desc">Start fresh. Deletes all Replay Images in Neo4j, flushes memory buffers, and resets Kafka to read from the beginning.</p>
+              </div>
+            </div>
+          </div>
+
+          <details className="advanced-settings">
+            <summary>Advanced Settings</summary>
+            <div className="form-group advanced-group">
+              <label htmlFor="wsUrl">WebSocket Server URL:</label>
               <input
                 id="wsUrl"
                 type="text"
@@ -338,71 +401,27 @@ const GOTRMonitor = () => {
                 placeholder="ws://localhost:8000/ws"
                 required
               />
+              <small className="help-text">Only change this if the backend is running on a different host/port.</small>
             </div>
+          </details>
 
-            <div className="form-group">
-              <label>Conformance Mode:</label>
-              <div className="radio-group">
-                <label className="radio-label">
-                  <input
-                    type="radio"
-                    name="mode"
-                    value="online"
-                    checked={mode === 'online'}
-                    onChange={(e) => setMode(e.target.value)}
-                  />
-                  Online
-                </label>
-                <label className="radio-label">
-                  <input
-                    type="radio"
-                    name="mode"
-                    value="multi"
-                    checked={mode === 'multi'}
-                    onChange={(e) => setMode(e.target.value)}
-                  />
-                  Multi-organizational
-                </label>
-              </div>
-            </div>
-            
-            <div className="form-group">
-              <label>Running Mode:</label>
-              <div className="radio-group">
-                <label className="radio-label">
-                  <input
-                    type="radio"
-                    name="conformance"
-                    value="continue"
-                    checked={conformance === 'continue'}
-                    onChange={(e) => setConformance(e.target.value)}
-                  />
-                  Continue
-                </label>
-                <label className="radio-label">
-                  <input
-                    type="radio"
-                    name="conformance"
-                    value="reset"
-                    checked={conformance === 'reset'}
-                    onChange={(e) => setConformance(e.target.value)}
-                  />
-                  Reset
-                </label>
-              </div>
-            </div>
-
+          <div className="action-section">
             <button 
               onClick={handleConfigure} 
               type="button" 
-              className="configure-button"
+              className={`configure-button pulse ${isConfiguring ? 'loading' : ''}`}
+              disabled={isConfiguring}
             >
-              Start Monitoring
+              {isConfiguring ? (
+                <span className="loading-text">
+                  <span className="spinner"></span> Configuring...
+                </span>
+              ) : 'Start Monitoring'}
             </button>
             
             {configError && (
-              <div className="error-message">
-                {configError}
+              <div className="error-message bounce-in">
+                ⚠️ {configError}
               </div>
             )}
           </div>
@@ -483,31 +502,65 @@ const GOTRMonitor = () => {
                 <div className="timestamp">{new Date(alert.timestamp).toLocaleString()}</div>
                 <div className="case-id">Case: {alert.case_id}</div>
                 
-                <div className="deviation-title" style={{marginTop: "8px", fontSize: "1.1em", color: alert.type === 'critical_alert' ? '#ff4d4f' : '#faad14'}}>
-                  <strong>⚠️ {getDeviationTitle(alert.deviation_type)}</strong>
+                <div className="deviation-title" style={{marginTop: "8px", fontSize: "1.1em", color: alert.type === 'critical_alert' ? '#ff4d4f' : '#faad14', display: 'flex', flexDirection: 'column', gap: '4px'}}>
+                  {(alert.violations && alert.violations.length > 0) ? (
+                    alert.violations.map((v, idx) => (
+                      <strong key={idx}>⚠️ {getDeviationTitle(v.type)}</strong>
+                    ))
+                  ) : (
+                    <strong>⚠️ {getDeviationTitle(alert.deviation_type)}</strong>
+                  )}
                 </div>
 
                 <div className="deviation-context" style={{marginTop: "8px", backgroundColor: "rgba(0,0,0,0.2)", padding: "10px", borderRadius: "4px"}}>
-                  {alert.deviation_type === 'missing_token' && alert.details && (
-                    <div>
-                      <strong>Context:</strong> Activity <code>{alert.details.activity}</code> was executed, but it is out of order or skipped a required prerequisite in the SOP.
-                    </div>
-                  )}
-                  
-                  {alert.deviation_type === 'organizational' && alert.details && (
-                    <div>
-                      <strong>Context:</strong> Activity <code>{alert.details.activity}</code> was executed by <code>{alert.details.resource}</code>, but they do not have the required authorization.
-                      <ul>
-                        {alert.details.org_issues?.includes('wrong_team') && <li>The resource does not belong to the required team.</li>}
-                        {alert.details.org_issues?.includes('wrong_structure') && <li>The resource does not have the required role for this activity.</li>}
-                      </ul>
-                    </div>
-                  )}
+                  {(alert.violations && alert.violations.length > 0) ? (
+                    alert.violations.map((v, idx) => (
+                      <div key={idx} style={{marginBottom: idx < alert.violations.length - 1 ? '10px' : '0', paddingBottom: idx < alert.violations.length - 1 ? '10px' : '0', borderBottom: idx < alert.violations.length - 1 ? '1px solid rgba(255,255,255,0.1)' : 'none'}}>
+                        {v.type === 'missing_token' && (
+                          <div>
+                            <strong>Context:</strong> Activity <code>{v.activity || alert.details?.activity}</code> was executed, but it is out of order or skipped a required prerequisite in the SOP.
+                          </div>
+                        )}
+                        {v.type === 'organizational' && (
+                          <div>
+                            <strong>Context:</strong> Activity <code>{v.activity || alert.details?.activity}</code> was executed by <code>{v.actor || alert.details?.actor}</code>, but they do not have the required authorization.
+                            <ul>
+                              {v.org_issues?.includes('wrong_team') && <li>The resource does not belong to the required team.</li>}
+                              {v.org_issues?.includes('wrong_structure') && <li>The resource does not have the required role for this activity.</li>}
+                            </ul>
+                          </div>
+                        )}
+                        {v.type === 'unknown_activity' && (
+                          <div>
+                            <strong>Context:</strong> Activity <code>{v.activity || alert.details?.activity}</code> is not recognized in the Master Model (SOP).
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  ) : (
+                    <>
+                      {alert.deviation_type === 'missing_token' && alert.details && (
+                        <div>
+                          <strong>Context:</strong> Activity <code>{alert.details.activity}</code> was executed, but it is out of order or skipped a required prerequisite in the SOP.
+                        </div>
+                      )}
+                      
+                      {alert.deviation_type === 'organizational' && alert.details && (
+                        <div>
+                          <strong>Context:</strong> Activity <code>{alert.details.activity}</code> was executed by <code>{alert.details.resource || alert.details.actor}</code>, but they do not have the required authorization.
+                          <ul>
+                            {alert.details.org_issues?.includes('wrong_team') && <li>The resource does not belong to the required team.</li>}
+                            {alert.details.org_issues?.includes('wrong_structure') && <li>The resource does not have the required role for this activity.</li>}
+                          </ul>
+                        </div>
+                      )}
 
-                  {alert.deviation_type === 'unknown_activity' && alert.details && (
-                    <div>
-                      <strong>Context:</strong> Activity <code>{alert.details.activity}</code> is not recognized in the Master Model (SOP).
-                    </div>
+                      {alert.deviation_type === 'unknown_activity' && alert.details && (
+                        <div>
+                          <strong>Context:</strong> Activity <code>{alert.details.activity}</code> is not recognized in the Master Model (SOP).
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
                 
