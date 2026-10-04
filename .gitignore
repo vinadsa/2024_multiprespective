@@ -2,3 +2,7 @@
 OnlineApps/kafka-docker/data/*
 finalenv/
 !onlineapps/kafka/data/.gitkeep
+.venv
+.playwright-mcp
+artifacts/
+AGENTS.md

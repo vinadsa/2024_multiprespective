@@ -465,7 +465,15 @@ const GOTRMonitor = () => {
       )}
       
       <div className="alerts">
-        {alerts.map((alert) => (
+        {alerts.map((alert) => {
+          const getDeviationTitle = (type) => {
+            if (type === 'missing_token') return 'Missing Token (Sequence/SOP Violation)';
+            if (type === 'organizational') return 'Organizational Violation (Unauthorized Role)';
+            if (type === 'unknown_activity') return 'Unknown Activity (Activity not in SOP)';
+            return type || 'Unknown';
+          };
+          
+          return (
           <div 
             key={alert.alert_id} 
             className={`alert ${alert.type === 'critical_alert' ? 'critical-alert' : 'deviation'}`}
@@ -474,17 +482,50 @@ const GOTRMonitor = () => {
               <div className="alert-content">
                 <div className="timestamp">{new Date(alert.timestamp).toLocaleString()}</div>
                 <div className="case-id">Case: {alert.case_id}</div>
-                <div><strong>Type:</strong> {alert.deviation_type}</div>
-                <div><strong>Alert Type:</strong> {alert.type === 'critical_alert' ? 'Critical' : 'Deviation'}</div>
-                <div><strong>Message:</strong> {alert.message}</div>
-                <div><strong>Score:</strong> {alert.cumulative_score?.toFixed(2) || '0.00'}</div>
+                
+                <div className="deviation-title" style={{marginTop: "8px", fontSize: "1.1em", color: alert.type === 'critical_alert' ? '#ff4d4f' : '#faad14'}}>
+                  <strong>⚠️ {getDeviationTitle(alert.deviation_type)}</strong>
+                </div>
+
+                <div className="deviation-context" style={{marginTop: "8px", backgroundColor: "rgba(0,0,0,0.2)", padding: "10px", borderRadius: "4px"}}>
+                  {alert.deviation_type === 'missing_token' && alert.details && (
+                    <div>
+                      <strong>Context:</strong> Activity <code>{alert.details.activity}</code> was executed, but it is out of order or skipped a required prerequisite in the SOP.
+                    </div>
+                  )}
+                  
+                  {alert.deviation_type === 'organizational' && alert.details && (
+                    <div>
+                      <strong>Context:</strong> Activity <code>{alert.details.activity}</code> was executed by <code>{alert.details.resource}</code>, but they do not have the required authorization.
+                      <ul>
+                        {alert.details.org_issues?.includes('wrong_team') && <li>The resource does not belong to the required team.</li>}
+                        {alert.details.org_issues?.includes('wrong_structure') && <li>The resource does not have the required role for this activity.</li>}
+                      </ul>
+                    </div>
+                  )}
+
+                  {alert.deviation_type === 'unknown_activity' && alert.details && (
+                    <div>
+                      <strong>Context:</strong> Activity <code>{alert.details.activity}</code> is not recognized in the Master Model (SOP).
+                    </div>
+                  )}
+                </div>
+                
+                <div style={{marginTop: "8px"}}><strong>System Message:</strong> {alert.message}</div>
+                <div><strong>Anomaly Score:</strong> {alert.cumulative_score?.toFixed(2) || '0.00'}</div>
+                
+                {alert.event_history && alert.event_history.length > 0 && (
+                  <div style={{marginTop: "8px", fontSize: "0.9em", color: "#888"}}>
+                    <strong>Recent History:</strong> {alert.event_history.join(' ➔ ')}
+                  </div>
+                )}
               </div>
               <div className={`alert-badge ${alert.type === 'critical_alert' ? 'critical' : 'deviation'}`}>
                 {alert.type === 'critical_alert' ? 'CRITICAL' : 'DEVIATION'}
               </div>
             </div>
           </div>
-        ))}
+        )})}
         {alerts.length === 0 && (
           <div className="no-alerts">
             No alerts yet. Waiting for data...
