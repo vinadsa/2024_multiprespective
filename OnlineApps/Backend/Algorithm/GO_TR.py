@@ -1,128 +1,95 @@
 import itertools
 from . import Neo4jFunc as neo4j_func
-#  DATA
-import pandas as pd
+import math
 
-# Create the data from the image
-data = {
-    "actor": ["John", "Sue", "Clare", "Mike", "Pete", "Fred", "Robert", "Jane", "Mona"],
-    "orgStructure": [
-        "Clerk",
-        "Clerk",
-        "Clerk",
-        "Engineer Manager",
-        "Engineer",
-        "Engineer",
-        "Engineer",
-        "Financial Administrator",
-        "Financial Administrator",
-    ],
-    "orgTeam": [
-        "Customer Service Team",
-        "Mobile Phone team",
-        "GPS team",
-        "Mobile Phone team",
-        "Mobile Phone team",
-        "GPS team",
-        "GPS team",
-        "Mobile Phone team",
-        "GPS team",
-    ],
-}
+# ---------------------------------------------------------------------------
+# Organizational rules
+# ---------------------------------------------------------------------------
+# The hardcoded Repair-process DataFrames (df_res_tab, df_activity_entity,
+# df_activity_function) were removed. Activity rules are now defined in an org
+# model file (models/*.yaml|json), materialized by Algorithm/OrgModel.py and
+# stored on the master Transition nodes in Neo4j:
+#   t.org_modeled, t.req_role, t.req_team, t.team_var, t.writes
+# plus (t)-[:WRITE]->(v:Variable {attribute, source, default}).
 
-df_res_tab = pd.DataFrame(data)
-df_res_tab.set_index("actor", inplace = True)
-df_res_tab
+_org_rule_cache = {}
+_MISSING_VALUES = {"", "nan", "none", "null"}
 
-import pandas as pd
 
-# Create dataframe from the table in the image
-data2 = {
-    "activity": [
-        "Receive an item and repair request",
-        "Check the warranty",
-        "Check the item",
-        "Notify the customer",
-        "Send a cancellation letter",
-        "Repair the item",
-        "Issue payment",
-        "Return the item",
-        "START",
-        "END",
-    ],
-    "orgStructure": [
-        "Clerk",
-        "Clerk",
-        "Engineer",
-        "Clerk",
-        "Clerk",
-        "Engineer",
-        "Financial Administrator",
-        "Clerk",
-        None,
-        None,
-    ],
-    "orgTeam": [
-        "Customer Service team",
-        "Customer Service team",
-        "variable",
-        "variable",
-        "variable",
-        "variable",
-        "variable",
-        "variable",
-        None,
-        None,
-    ],
-    "orgTeamVariableName": [
-        None,
-        None,
-        "product_type",
-        "product_type",
-        "product_type",
-        "product_type",
-        "product_type",
-        "product_type",
-        None,
-        None,
-    ],
-}
+def clear_org_rule_cache():
+    """Must be called whenever the process model or the org model is (re)loaded."""
+    _org_rule_cache.clear()
 
-df_activity_entity = pd.DataFrame(data2)
-df_activity_entity.set_index("activity", inplace = True)
-df_activity_entity
 
-# Create dataframe from the new image table
-data3 = {
-    "activity": [
-        "Receive an item and repair request",
-        "Check the warranty",
-        "Check the item",
-        "Notify the customer",
-        "Send a cancellation letter",
-        "Repair the item",
-        "Issue payment",
-        "Return the item",
-        "START",
-        "END",
-    ],
-    "product_type": [
-        "write",
-        None,
-        "read",
-        "read",
-        "read",
-        "read",
-        "read",
-        "read",
-        None,
-        None,
-    ],
-}
+def getActivityOrgRule(activity, session):
+    """Return the org rule of an activity (cached) or None when the activity is not modeled."""
+    if activity in _org_rule_cache:
+        return _org_rule_cache[activity]
 
-df_activity_function = pd.DataFrame(data3)
-df_activity_function.set_index("activity", inplace = True)
-df_activity_function
+    q_rule = '''
+        MATCH (t:Transition {type:'master', label:$activity})
+        WHERE t.org_modeled = true
+        OPTIONAL MATCH (t)-[:WRITE]->(v:Variable {type:'master'})
+        WITH t, collect(DISTINCT v) AS vars
+        RETURN t.req_role AS role, t.req_team AS team, t.team_var AS team_var,
+               [v IN vars | {name: v.name, attribute: v.attribute, source: v.source, default: v.default}] AS writes
+        LIMIT 1
+    '''
+    record = session.run(q_rule, activity=activity).single()
+    rule = None
+    if record is not None:
+        rule = {
+            "role": record["role"],
+            "team": record["team"],
+            "team_var": record["team_var"],
+            "writes": [w for w in record["writes"] if w.get("name")],
+        }
+    _org_rule_cache[activity] = rule
+    return rule
+
+
+def _is_missing(value):
+    if value is None:
+        return True
+    if isinstance(value, float) and math.isnan(value):
+        return True
+    return isinstance(value, str) and value.strip().lower() in _MISSING_VALUES
+
+
+def resolve_event_attribute(event, attribute, source="any"):
+    """
+    Look up an attribute in a normalized event dict.
+    source: 'event_attrs' | 'case_attrs' | 'event' (top-level) | 'any' (event -> case -> top-level)
+    """
+    event_attrs = event.get("event_attrs") or {}
+    case_attrs = event.get("case_attrs") or {}
+    lookups = {
+        "event_attrs": [event_attrs],
+        "case_attrs": [case_attrs],
+        "event": [event],
+    }.get(source, [event_attrs, case_attrs, event])
+    for container in lookups:
+        value = container.get(attribute)
+        if not _is_missing(value):
+            return value
+    legacy = event.get("__legacy_value__")
+    return None if _is_missing(legacy) else legacy
+
+
+def normalize_event(event):
+    """Accept the new dict format or the legacy list [case_id, activity, resource, var_value]."""
+    if isinstance(event, dict):
+        return event
+    values = list(event) + [None] * 4
+    return {
+        "case_id": values[0],
+        "activity": values[1],
+        "resource": values[2],
+        "event_attrs": {},
+        "case_attrs": {},
+        "__legacy_value__": values[3],
+    }
+
 
 # 
 def getCurrentMarking(p_id,session):
@@ -831,65 +798,30 @@ def readVariable(p_id, activity, var_name,session):
 #         recap['team'] = record[0]
 #     return recap['team']
 
-def checkStructural(activity, df_activity_entity):
-    return df_activity_entity.loc[activity]['orgStructure']
-
-# memeriksa nama team. Jika bernama 'variable' maka cek nama variable nya dari tabel activity_entity kmdn baca valuenya
-
-def checkTeam(p_id, activity, df_activity_entity,session):
-    var_name = ''
-    orgTeam =  df_activity_entity.loc[activity]['orgTeam']
-    if orgTeam == 'variable': # pasti baca
-        var_name = df_activity_entity.loc[activity]['orgTeamVariableName'] # get variable name --> GPS team, Mobile team
-        orgTeam = readVariable(p_id, activity, var_name,session) # read variable value in neo4j
-    return var_name , orgTeam
-
-def checkTeamFunction(activity, var_name):
-    return df_activity_function.loc[activity, var_name]
-
-# get: activity, orgStructure, orgTeam, actor
-def scanTheComponentForPattern(p_id, activity, df_activity_entity,session):
-    orgStructure = checkStructural(activity, df_activity_entity) # example: engineer, clerk --> checkRoleName
-    var_name, orgTeam = checkTeam(p_id, activity, df_activity_entity,session) # 'product_type', 'GPS team' --> checkTeamName
-    return orgStructure, orgTeam
-
-def checkOrgStructurePattern(activity, orgStructure, actor,session):
+def checkOrgStructurePattern(activity, orgStructure, actor, session):
     q_checkOrgStructurePattern = '''
-    OPTIONAL MATCH (a:Transition {type:'master', label:$activity})-[:EXECUTED_BY]->(e:Entity {eName:$orgStructure})
-    WITH a,e
-    MATCH path = (a)-[:EXECUTED_BY]->(e)-[*]->(o:Resource {rName:$actor})
-    RETURN length(path) as length, path
+    MATCH (e:Entity {eName:$orgStructure})
+    MATCH (child:Entity)-[:SUPERVISED_BY|TO_ROOT*0..]->(e)
+    MATCH (child)-[:ROLE]->(r:Resource {rName:$actor})
+    RETURN count(r) AS cnt
     '''
-    results = session.run(q_checkOrgStructurePattern, activity=activity, orgStructure=orgStructure, actor=actor)
+    results = session.run(q_checkOrgStructurePattern, orgStructure=orgStructure, actor=actor)
+    record = results.single()
+    return (record and record["cnt"] > 0)
 
-    length = 0
-    path = []
-    for record in results:
-        length = record[0]
-        path = record[1]
-    if length>0:
-        return True
-    else:
-        return False
-    
-def checkOrgTeamPattern(activity, orgTeam, actor,session):
+def checkOrgTeamPattern(activity, orgTeam, actor, session):
+    # For teams, the logic is identical: is the actor part of the team or any of its sub-teams?
     q_checkOrgTeamPattern = '''
-    MATCH path = (a:Transition {type:'master', label:$activity})-[:EXECUTED_BY]->()-[*]->(o:Resource {rName:$actor})
-    WITH path, nodes(path) as ns
-    WHERE any(n in ns WHERE n.eName=$orgTeam)
-    RETURN length(path) as length, path
+    MATCH (e:Entity {eName:$orgTeam})
+    MATCH (child:Entity)-[:SUPERVISED_BY|TO_ROOT*0..]->(e)
+    MATCH (child)-[:ROLE]->(r:Resource {rName:$actor})
+    RETURN count(r) AS cnt
     '''
-    results = session.run(q_checkOrgTeamPattern, activity=activity, orgTeam=orgTeam, actor=actor)
+    results = session.run(q_checkOrgTeamPattern, orgTeam=orgTeam, actor=actor)
+    record = results.single()
+    return (record and record["cnt"] > 0)
 
-    length = 0
-    path = []
-    for record in results:
-        length = record[0]
-        path = record[1]
-    if length>0:
-        return True
-    else:
-        return False
+
     
 def recapPerFinalCase(p_id,session):
     """
@@ -1091,40 +1023,54 @@ def tokenBasedReplay(event_streams,trans_name,states,places,session):
             print("==============================================")
 
 
-        # 1. jika aktifitas memiliki fungsi write maka lakukan update variable
-        teamF = checkTeamFunction(activity, 'product_type') # df_activity_function
-        if teamF == 'write':
-            status = writeVariable(p_id, activity,'product_type', prodType_varValue,session) # activity harus ada untuk memastikan bisa write pada model
-#             if status
+        # Organizational Check (Dynamic)
+        rule = getActivityOrgRule(activity, session)
+        if rule:
+            norm_event = normalize_event(event)
+            # 1. Write variables
+            for w in rule["writes"]:
+                var_name = w["name"]
+                var_attr = w["attribute"]
+                var_source = w["source"]
+                val = resolve_event_attribute(norm_event, var_attr, var_source)
+                if val is None:
+                    if var_name == 'product_type':
+                        val = prodType_varValue
+                    else:
+                        val = w["default"]
+                writeVariable(p_id, activity, var_name, val, session)
 
-        # 2. periksa role statis (structure), dan role dinamis (team)
-        orgStructure, orgTeam = scanTheComponentForPattern(p_id, activity, df_activity_entity) # role dinamis adalah variable
+            # 2. Check Static Role (Structure)
+            isStructureConform = True
+            if rule["role"]:
+                isStructureConform = checkOrgStructurePattern(activity, rule["role"], actor, session)
 
-        # pattern
-        isStructureConform = checkOrgStructurePattern(activity, orgStructure, actor,session)# statis
-        isTeamConform = checkOrgTeamPattern(activity, orgTeam, actor,session) # dinamis
-        if isStructureConform and isTeamConform:
-            activate_activities[p_id][-1].extend(['normal_originator',actor])
-        else:
-#             print('orgStructure: ', orgStructure)
-#             print('isStructureConform: ',isStructureConform)
-            wrong_originator = []
-            if not isStructureConform:
-                wrong_originator.append('wrong_structure')
-                anomaly_score[p_id] = anomaly_score[p_id] + 0.8 # bisa jadi ini adalah work_around
-                print("\033[34m >>ALERT! [", p_id,"][Anomaly score: 0.8, accu scores:", anomaly_score[p_id], "] [", replay_info['e'],"]","[Type: wrong_structure]", actor, "\033[30m")
-                if anomaly_score[p_id] >= 1:
-                    print("\033[91m >>>WARNING! AN INSPECTION NEEDED ON CASE ID:", p_id, "\033[30m")
-                #             print('isTeamConform: ', isTeamConform)
-            if not isTeamConform:
-                wrong_originator.append('wrong_team')
-                anomaly_score[p_id] = anomaly_score[p_id] + 0.5 # bisa jadi ini adalah work_around
-                print("\033[34m >>ALERT! [", p_id,"][Anomaly score: 0.5, accu scores:", anomaly_score[p_id],"] [", replay_info['e'],"]", "[Type: wrong_team]", actor, "\033[30m")
-                if anomaly_score[p_id] >= 1:
-                    print("\033[91m >>>WARNING! AN INSPECTION NEEDED ON CASE ID:", p_id, "\033[30m")
-            activate_activities[p_id][-1].extend([wrong_originator,actor])
+            # 3. Check Dynamic Team
+            isTeamConform = True
+            req_team = rule["team"]
+            if rule["team_var"]:
+                req_team = readVariable(p_id, activity, rule["team_var"], session)
+            
+            if req_team:
+                isTeamConform = checkOrgTeamPattern(activity, req_team, actor, session)
 
-#             dumpFinishedProcess(p_id)
+            if isStructureConform and isTeamConform:
+                activate_activities[p_id][-1].extend(['normal_originator', actor])
+            else:
+                wrong_originator = []
+                if not isStructureConform:
+                    wrong_originator.append('wrong_structure')
+                    anomaly_score[p_id] = anomaly_score.get(p_id, 0) + 0.8
+                    print("\033[34m >>ALERT! [", p_id, "][Anomaly score: 0.8, accu scores:", anomaly_score[p_id], "] [", replay_info.get('e', activity), "]", "[Type: wrong_structure]", actor, "\033[30m")
+                    if anomaly_score[p_id] >= 1:
+                        print("\033[91m >>>WARNING! AN INSPECTION NEEDED ON CASE ID:", p_id, "\033[30m")
+                if not isTeamConform:
+                    wrong_originator.append('wrong_team')
+                    anomaly_score[p_id] = anomaly_score.get(p_id, 0) + 0.5
+                    print("\033[34m >>ALERT! [", p_id, "][Anomaly score: 0.5, accu scores:", anomaly_score[p_id], "] [", replay_info.get('e', activity), "]", "[Type: wrong_team]", actor, "\033[30m")
+                    if anomaly_score[p_id] >= 1:
+                        print("\033[91m >>>WARNING! AN INSPECTION NEEDED ON CASE ID:", p_id, "\033[30m")
+                activate_activities[p_id][-1].extend([wrong_originator, actor])
 
     finish_gotbr= time.perf_counter()
     print("GO-TBR ", f'Finish at {datetime.now()}', f' in {round(finish_gotbr-start_gotbr, 2)} second(s)')
@@ -1179,22 +1125,46 @@ def process_single_event(p_id, event, trans_name, states, places,check,session):
         deviation_details['missing_count'] = replay_info['num_of_missing_token']
         deviation_details['activity'] = activity
         print(f"🚨 ALERT! [Case: {p_id}] [Type: missing_token] for activity '{activity}'")
-    if(check=='multi'):
+    if check == 'multi':
         # 4. Perform organizational conformance check
-        teamF = checkTeamFunction(activity, 'product_type')
-        if teamF == 'write':
-            writeVariable(p_id, activity, 'product_type', prodType_varValue, session)
-        orgStructure, orgTeam = scanTheComponentForPattern(p_id, activity, df_activity_entity,session)
-        isStructureConform = checkOrgStructurePattern(activity, orgStructure, actor, session)
-        isTeamConform = checkOrgTeamPattern(activity, orgTeam, actor, session)
-        if not isStructureConform or not isTeamConform:
-            org_deviations = []
-            if not isStructureConform: org_deviations.append('wrong_structure')
-            if not isTeamConform: org_deviations.append('wrong_team')
-            deviation_details['type'] = 'organizational'
-            deviation_details['org_issues'] = org_deviations
-            deviation_details['actor'] = actor
-            print(f"🚨 ALERT! [Case: {p_id}] [Type: organizational] by '{actor}' for '{activity}'")
+        rule = getActivityOrgRule(activity, session)
+        if rule:
+            norm_event = normalize_event(event)
+            # Write variables
+            for w in rule["writes"]:
+                var_name = w["name"]
+                var_attr = w["attribute"]
+                var_source = w["source"]
+                val = resolve_event_attribute(norm_event, var_attr, var_source)
+                if val is None:
+                    if var_name == 'product_type':
+                        val = prodType_varValue
+                    else:
+                        val = w["default"]
+                writeVariable(p_id, activity, var_name, val, session)
+            
+            # Check Role
+            isStructureConform = True
+            if rule["role"]:
+                isStructureConform = checkOrgStructurePattern(activity, rule["role"], actor, session)
+            
+            # Check Team
+            isTeamConform = True
+            req_team = rule["team"]
+            if rule["team_var"]:
+                req_team = readVariable(p_id, activity, rule["team_var"], session)
+            
+            if req_team:
+                isTeamConform = checkOrgTeamPattern(activity, req_team, actor, session)
+            
+            if not isStructureConform or not isTeamConform:
+                org_deviations = []
+                if not isStructureConform: org_deviations.append('wrong_structure')
+                if not isTeamConform: org_deviations.append('wrong_team')
+                deviation_details['type'] = 'organizational'
+                deviation_details['org_issues'] = org_deviations
+                deviation_details['actor'] = actor
+                print(f"🚨 ALERT! [Case: {p_id}] [Type: organizational] by '{actor}' for '{activity}'")
     
     if deviation_details:
         return {"status": "deviation", **deviation_details}

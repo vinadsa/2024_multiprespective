@@ -63,9 +63,11 @@ def setMasterInitialMarking(tx, im_name):
     ''', im_name=im_name)
     return None
 def setMasterFinalMarking(tx, fm_name):
+    # NOTE: `fm` is a numeric counter mutated by the replay queries (op.fm = 1, ip.fm - 1),
+    # so the final place is flagged with a dedicated boolean `is_final` instead of fm=True.
     tx.run('''
     MATCH (x:Place {name:$fm_name})
-    SET x.fm = True
+    SET x.is_final = true
     ''', fm_name=fm_name)
     return None
 
@@ -108,22 +110,21 @@ def start_environtmen(net,ts,trans_name,initial_marking,final_marking,session):
     im_name = [im for im in initial_marking][0].name
     setMasterInitialMarking(session, im_name)
 
-    # Final
-    fm_name = [fm for fm in final_marking][0].name
-    setMasterFinalMarking(session, fm_name)
+    # Final (a final marking may consist of more than one place)
+    for fm in final_marking:
+        setMasterFinalMarking(session, fm.name)
     return None
 
 # Cypher to create organizational model
-# Cipher untuk membuat petrinet di Neo4J
-teams = ['Team', 'Mobile Phone team','GPS team','Customer Service team']
-roles = ['Structural', 'Clerk', 'Engineer Manager', 'Engineer','Financial Administrator']
-originators = ['John','Sue','Clare','Mike','Pete','Fred','Robert','Jane','Mona']
+# Entities, resources and activity rules are no longer hardcoded here:
+# they are defined in an org model file (YAML/JSON, see models/org_model.repair.yaml)
+# and materialized through Algorithm/OrgModel.py using the functions below.
 
 # contoh entity
 # entity_name = team, entity
 
-def createEntity(tx, eName):
-    tx.run("CREATE (:Entity {eName:$eName })", eName=eName)
+def createEntity(tx, eName, kind=None):
+    tx.run("CREATE (:Entity {eName:$eName, kind:$kind})", eName=eName, kind=kind)
     return None
 
 # def createOrgUnit(tx):
@@ -140,9 +141,16 @@ def createResource(tx, rName):
     tx.run("CREATE (:Resource {rName: $rName})", rName=rName)
     return None
 
-def createProductTypeVariable(tx, name, prodType):
-    tx.run("CREATE (:Variable {type:'master', name:$name, team: $prodType})", name=name, prodType=prodType)
+def createVariable(tx, name, value='', attribute=None, source='any', default=None):
+    """Create a master case variable. `attribute`/`source` tell GO-TR where to read its value from."""
+    tx.run('''
+    CREATE (:Variable {type:'master', name:$name, team:$value, attribute:$attribute, source:$source, default:$default})
+    ''', name=name, value=value, attribute=attribute or name, source=source, default=default)
     return None
+
+def createProductTypeVariable(tx, name, prodType):
+    # Backward-compatible alias (the variable used to be hardcoded as 'product_type')
+    return createVariable(tx, name, prodType)
 
 # fungsi relasi
 def createRelationship_team_to_ou(tx):
@@ -193,7 +201,7 @@ def createRelationship_entity_to_root(tx, eName, rootName ):
 
 def createRelationship_task_to_entity(tx, label, eName ):
     tx.run('''
-    MATCH (x:Transition {label:$label}), (y:Entity {eName:$eName})
+    MATCH (x:Transition {type:'master', label:$label}), (y:Entity {eName:$eName})
     MERGE (x)-[:EXECUTED_BY]->(y)
     ''', label=label, eName=eName)
 
@@ -213,7 +221,7 @@ def createRelationship_task_to_team(tx, label, tName ):
 # write variable
 def createRelationship_task_to_variable(tx, label, name ):
     tx.run('''
-    MATCH (x:Transition {label:$label}), (y:Variable {name:$name})
+    MATCH (x:Transition {type:'master', label:$label}), (y:Variable {type:'master', name:$name})
     MERGE (x)-[:WRITE]->(y)
     ''', label=label, name=name)
     return None
@@ -221,141 +229,117 @@ def createRelationship_task_to_variable(tx, label, name ):
 # read variable
 def createRelationship_variable_to_task(tx, var_name, label):
     tx.run('''
-    MATCH (y:Variable {name:$var_name}),(x:Transition {label:$label})
+    MATCH (y:Variable {type:'master', name:$var_name}),(x:Transition {type:'master', label:$label})
     MERGE (y)-[:READ]->(x)
     ''', label=label, var_name=var_name)
     return None
 
-def generate_organizational_model(session):
-    # Buat model organisasi
-    # createOrgUnit(session)
+def generate_organizational_model(session, org_model=None):
+    """
+    Materialize the organizational model in Neo4j.
 
-    for team in teams:
-        createEntity(session, team)
+    The hardcoded "Repair Request" org model that used to live here was migrated to
+    ``models/org_model.repair.yaml``. ``org_model`` may be an ``OrgModel`` instance or a
+    path to a YAML/JSON file; when omitted the Repair baseline file is used.
+    """
+    from pathlib import Path
+    from .OrgModel import OrgModel, load_org_model
 
-    for role in roles:
-        createEntity(session, role)
-
-    for name in originators:
-        createResource(session, name)
-
-
-    # Relasi entiti ke entiti
-    createRelationship_entity_supervise_entity(session, 'Engineer', 'Engineer Manager' )
-    createRelationship_entity_to_root(session, 'Clerk', 'Structural' )
-    createRelationship_entity_to_root(session, 'Financial Administrator', 'Structural' )
-    createRelationship_entity_to_root(session, 'Engineer Manager', 'Structural' )
-    createRelationship_entity_to_root(session, 'Customer Service team', 'Team' )
-    createRelationship_entity_to_root(session, 'Mobile Phone team', 'Team' )
-    createRelationship_entity_to_root(session, 'GPS team', 'Team' )
+    if org_model is None:
+        org_model = Path(__file__).resolve().parent.parent / "models" / "org_model.repair.yaml"
+    if not isinstance(org_model, OrgModel):
+        org_model = load_org_model(org_model)
+    return org_model.apply_to_neo4j(session)
 
 
-    # Eksekusi resource ke organizational unit
-    createRelationship_resource_to_Entity(session, 'John', 'Clerk')
-    createRelationship_resource_to_Entity(session, 'Sue', 'Clerk')
-    createRelationship_resource_to_Entity(session, 'Clare', 'Clerk')
-    createRelationship_resource_to_Entity(session, 'Mike', 'Engineer Manager')
-    createRelationship_resource_to_Entity(session, 'Pete', 'Engineer')
-    createRelationship_resource_to_Entity(session, 'Fred', 'Engineer')
-    createRelationship_resource_to_Entity(session, 'Robert', 'Engineer')
-    createRelationship_resource_to_Entity(session, 'Jane', 'Financial Administrator')
-    createRelationship_resource_to_Entity(session, 'Mona', 'Financial Administrator')
-
-    createRelationship_resource_to_Entity(session, 'John', 'Customer Service team')
-    createRelationship_resource_to_Entity(session, 'Sue', 'Mobile Phone team')
-    createRelationship_resource_to_Entity(session, 'Clare', 'GPS team')
-    createRelationship_resource_to_Entity(session, 'Mike', 'Mobile Phone team')
-    createRelationship_resource_to_Entity(session, 'Pete', 'Mobile Phone team')
-    createRelationship_resource_to_Entity(session, 'Fred', 'GPS team')
-    createRelationship_resource_to_Entity(session, 'Robert', 'GPS team')
-    createRelationship_resource_to_Entity(session, 'Jane', 'Mobile Phone team')
-    createRelationship_resource_to_Entity(session, 'Mona', 'GPS team')
-
-    # Eksekusi relationship aktifitas (model proses) ke organizational model
-
-    createRelationship_task_to_entity(session, 'Receive an item and repair request', 'Customer Service team' )
-    createRelationship_task_to_entity(session, 'Receive an item and repair request', 'Clerk' )
-
-    createRelationship_task_to_entity(session, 'Check the warranty', 'Customer Service team' )
-    createRelationship_task_to_entity(session, 'Check the warranty', 'Clerk' )
-
-    createRelationship_task_to_entity(session, 'Check the item', 'Engineer' )
-    createRelationship_task_to_entity(session, 'Check the item', 'GPS team' )
-    createRelationship_task_to_entity(session, 'Check the item', 'Mobile Phone team' )
-
-    createRelationship_task_to_entity(session, 'Notify the customer', 'Clerk' )
-    createRelationship_task_to_entity(session, 'Notify the customer', 'GPS team' )
-    createRelationship_task_to_entity(session, 'Notify the customer', 'Mobile Phone team' )
-
-    createRelationship_task_to_entity(session, 'Repair the item', 'Engineer' )
-    createRelationship_task_to_entity(session, 'Repair the item', 'GPS team' )
-    createRelationship_task_to_entity(session, 'Repair the item', 'Mobile Phone team' )
-
-    createRelationship_task_to_entity(session, 'Issue payment', 'Financial Administrator' )
-    createRelationship_task_to_entity(session, 'Issue payment', 'GPS team' )
-    createRelationship_task_to_entity(session, 'Issue payment', 'Mobile Phone team' )
-
-    createRelationship_task_to_entity(session, 'Send a cancellation letter', 'Clerk' )
-    createRelationship_task_to_entity(session, 'Send a cancellation letter', 'GPS team' )
-    createRelationship_task_to_entity(session, 'Send a cancellation letter', 'Mobile Phone team' )
-
-    createRelationship_task_to_entity(session, 'Return the item', 'Clerk' )
-    createRelationship_task_to_entity(session, 'Return the item', 'GPS team' )
-    createRelationship_task_to_entity(session, 'Return the item', 'Mobile Phone team' )
+def clear_organizational_model(session):
+    """Remove every org-model artefact (entities, resources, variables, activity rules)."""
+    session.run("MATCH (n) WHERE n:Entity OR n:Resource OR n:Variable DETACH DELETE n")
+    session.run('''
+    MATCH (t:Transition)
+    REMOVE t.org_modeled, t.req_role, t.req_team, t.team_var, t.writes
+    ''')
+    return None
 
 
-    createProductTypeVariable(session, 'product_type', '') # team masih kosong
-    createRelationship_task_to_variable(session, 'Receive an item and repair request', 'product_type' )
+def set_transition_org_rule(session, label, role=None, team=None, team_var=None, writes=None):
+    """Store the organizational rule of an activity on its master Transition node(s)."""
+    session.run('''
+    MATCH (t:Transition {type:'master', label:$label})
+    SET t.org_modeled = true, t.req_role = $role, t.req_team = $team,
+        t.team_var = $team_var, t.writes = $writes
+    ''', label=label, role=role, team=team, team_var=team_var, writes=list(writes or []))
+    return None
 
 
-
-    #read
-    createRelationship_variable_to_task(session, 'product_type', 'Check the item' )
-    createRelationship_variable_to_task(session, 'product_type', 'Notify the customer' )
-    createRelationship_variable_to_task(session, 'product_type', 'Send a cancellation letter' )
-    createRelationship_variable_to_task(session, 'product_type', 'Repair the item' )
-    createRelationship_variable_to_task(session, 'product_type', 'Issue payment' )
-    createRelationship_variable_to_task(session, 'product_type', 'Return the item')
-    createRelationship_variable_to_task(session, 'product_type', 'Check the item' )
-    createRelationship_variable_to_task(session, 'product_type', 'Check the item' )
-    createRelationship_variable_to_task(session, 'product_type', 'Check the item' )
+def wipe_database(session):
+    """Delete everything (master model, reachability graph, org model and cases)."""
+    session.run("MATCH (n) DETACH DELETE n")
+    return None
 
 # cloning diidentifikasikan dari type di source place
 # tiap cloning bisa dibuat dengan p_id baru
 # p_id pada master diabaikan saja, krn hanya untuk diduplikasi oleh cloning nya
 
-#https://neo4j.com/labs/apoc/4.2/overview/apoc.refactor/apoc.refactor.cloneSubgraphFromPaths/
+#https://neo4j.com/labs/apoc/4.2/overview/apoc.refactor/apoc.refactor.cloneSubgraph/
+
+# Clone berbasis koleksi node master (Place, Transition, Variable). Semua relasi di antara
+# node tersebut (Arc, WRITE, READ) ikut ter-clone; EXECUTED_BY ke Entity tetap hanya di master.
+# Menggantikan query lama `MATCH path = (rootA)-[*]->(node)` yang jumlah path-nya tumbuh
+# eksponensial pada model besar / banyak loop (hasil discovery dari log acak).
+Q_CLONE_SUBGRAPH = '''
+    MATCH (n {type:'master'})
+    WHERE n:Place OR n:Transition OR n:Variable
+    WITH collect(n) AS nodes
+    CALL apoc.refactor.cloneSubgraph(nodes, [], {})
+    YIELD input, output, error
+    WITH collect(output) AS clones
+    UNWIND clones AS node
+    SET node.type = 'clone', node.p_id = $p_id
+    RETURN count(DISTINCT node) AS cloned
+'''
+
+Q_TAG_CLONE_RELS = '''
+    MATCH (a {p_id: $p_id, type:'clone'})-[r]->(b {p_id: $p_id, type:'clone'})
+    SET r.type = 'clone', r.p_id = $p_id
+'''
+
+# Query lama (fallback bila apoc.refactor.cloneSubgraph tidak tersedia)
+Q_CLONE_FROM_PATHS = '''
+    MaTCH (rootA:Place {type:'master', im:True}) // initial marking
+    WITH distinct rootA
+    CALL apoc.refactor.cloneNodes([rootA])
+    YIELD input, output
+    WITH rootA, input, output AS rootB
+    SET rootB.type='clone', rootB.p_id = $p_id
+
+    WITH rootA, rootB
+    MATCH path = (rootA)-[*]->(node)
+    WHERE node.type = 'master'
+    WITH rootA, rootB, collect(distinct path) as paths
+    CALL apoc.refactor.cloneSubgraphFromPaths(paths, {
+        standinNodes:[[rootA, rootB]]
+    })
+    YIELD input, output, error
+    WITH collect(DISTINCT output) AS nodes
+    UNWIND nodes as node
+    SET node.type = 'clone', node.p_id = $p_id
+
+    RETURN node //input, output, error
+'''
+
+_clone_strategy = {"use_subgraph": True}
 
 # Ini adalah cloning dari Source (Master) untuk dijalankan GO-TR pada situasi yang baru
 def createCloneFromModelRef(p_id,session):
-    q_rootNode ='''
-        //MATCH path = (root {type:'master', im:True})-[*]->(m {fm:True}) # semua bagian graf yang akan di clone
-        //WITH distinct root AS rootA
-        //CALL apoc.refactor.cloneNodes([rootA])
-        //YIELD input, output
-        //WITH rootA, input, output AS rootB
-        //SET rootB.type='clone', rootB.p_id = $p_id
-
-        MaTCH (rootA:Place {type:'master', im:True}) // initial marking
-        WITH distinct rootA
-        CALL apoc.refactor.cloneNodes([rootA])
-        YIELD input, output
-        WITH rootA, input, output AS rootB
-        SET rootB.type='clone', rootB.p_id = $p_id
-
-        WITH rootA, rootB
-        MATCH path = (rootA)-[*]->(node)
-        WHERE node.type = 'master'
-        WITH rootA, rootB, collect(distinct path) as paths
-        CALL apoc.refactor.cloneSubgraphFromPaths(paths, {
-            standinNodes:[[rootA, rootB]]
-        })
-        YIELD input, output, error
-        WITH collect(DISTINCT output) AS nodes
-        UNWIND nodes as node
-        SET node.type = 'clone', node.p_id = $p_id
-
-        RETURN node //input, output, error
-    '''
     print(p_id)
-    session.run(q_rootNode, p_id=p_id)
+    if _clone_strategy["use_subgraph"]:
+        try:
+            session.run(Q_CLONE_SUBGRAPH, p_id=p_id).consume()
+            session.run(Q_TAG_CLONE_RELS, p_id=p_id).consume()
+            return None
+        except Exception as e:  # e.g. older APOC without cloneSubgraph
+            print(f"apoc.refactor.cloneSubgraph unavailable ({e}); falling back to path-based clone")
+            _clone_strategy["use_subgraph"] = False
+    session.run(Q_CLONE_FROM_PATHS, p_id=p_id).consume()
+    return None

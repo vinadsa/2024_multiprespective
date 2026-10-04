@@ -6,3 +6,9 @@ finalenv/
 .playwright-mcp
 artifacts/
 AGENTS.md
+
+
+# Byte-compiled / optimized files
+__pycache__/
+*.py[cod]
+*$py.class

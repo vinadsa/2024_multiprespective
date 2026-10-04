@@ -1,0 +1,87 @@
+# Organizational model for the "Repair Request" process.
+#
+# This file is a 1:1 migration of the values that used to be hardcoded in
+#   - Algorithm/GO_TR.py      (df_activity_entity, df_activity_function)
+#   - Algorithm/Neo4jFunc.py  (teams, roles, originators, generate_organizational_model)
+# and serves as the regression baseline. Use it as a template for other processes.
+#
+# Schema
+#   entities.roots / roles / teams : Entity nodes (kind = root | role | team)
+#   hierarchy                      : child -[TO_ROOT | SUPERVISED_BY]-> parent
+#   resources                      : resource -> list of entities it belongs to
+#   variables                      : case variables written by an activity and read later
+#        attribute : event/case attribute name to read the value from
+#        source    : any | event_attrs | case_attrs | event   (default: any)
+#        default   : value used when the attribute is missing
+#   activities                     : rule per activity label (must match the process model)
+#        role      : required role (static structure)
+#        team      : required team (string) OR {variable: <var>, allowed: [teams]} (dynamic team)
+#        writes    : variables this activity writes
+#        executed_by (optional): explicit EXECUTED_BY entities (default: role + team/allowed)
+version: 1
+process: repair
+
+entities:
+  roots: [Structural, Team]
+  roles: [Clerk, Engineer Manager, Engineer, Financial Administrator]
+  teams: [Mobile Phone team, GPS team, Customer Service team]
+
+hierarchy:
+  - { child: Engineer, parent: Engineer Manager, rel: SUPERVISED_BY }
+  - { child: Clerk, parent: Structural, rel: TO_ROOT }
+  - { child: Financial Administrator, parent: Structural, rel: TO_ROOT }
+  - { child: Engineer Manager, parent: Structural, rel: TO_ROOT }
+  - { child: Customer Service team, parent: Team, rel: TO_ROOT }
+  - { child: Mobile Phone team, parent: Team, rel: TO_ROOT }
+  - { child: GPS team, parent: Team, rel: TO_ROOT }
+
+resources:
+  John:   [Clerk, Customer Service team]
+  Sue:    [Clerk, Mobile Phone team]
+  Clare:  [Clerk, GPS team]
+  Mike:   [Engineer Manager, Mobile Phone team]
+  Pete:   [Engineer, Mobile Phone team]
+  Fred:   [Engineer, GPS team]
+  Robert: [Engineer, GPS team]
+  Jane:   [Financial Administrator, Mobile Phone team]
+  Mona:   [Financial Administrator, GPS team]
+
+variables:
+  product_type:
+    attribute: product_type
+    source: any
+    default: unknown
+
+activities:
+  Receive an item and repair request:
+    role: Clerk
+    team: Customer Service team
+    writes: [product_type]
+
+  Check the warranty:
+    role: Clerk
+    team: Customer Service team
+
+  Check the item:
+    role: Engineer
+    team: { variable: product_type, allowed: [GPS team, Mobile Phone team] }
+
+  Notify the customer:
+    role: Clerk
+    team: { variable: product_type, allowed: [GPS team, Mobile Phone team] }
+
+  Send a cancellation letter:
+    role: Clerk
+    team: { variable: product_type, allowed: [GPS team, Mobile Phone team] }
+
+  Repair the item:
+    role: Engineer
+    team: { variable: product_type, allowed: [GPS team, Mobile Phone team] }
+
+  Issue payment:
+    role: Financial Administrator
+    team: { variable: product_type, allowed: [GPS team, Mobile Phone team] }
+
+  Return the item:
+    role: Clerk
+    team: { variable: product_type, allowed: [GPS team, Mobile Phone team] }
