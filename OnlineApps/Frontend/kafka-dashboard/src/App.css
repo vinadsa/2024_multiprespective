@@ -3,32 +3,38 @@ body {
   margin: 0;
   padding: 0;
   overflow-x: hidden;
-  font-family: Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
 }
 
 /* Configuration Form Styles */
 .configuration-container {
+  position: relative;
   margin: 0;
-  padding: 0;
+  padding: 40px 20px;
+  box-sizing: border-box;
   width: 100vw;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  background: linear-gradient(135deg, #f0f4f8 0%, #e0e8f0 100%);
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg-primary);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
 .modern-config {
-  background: rgba(255, 255, 255, 0.9);
-  backdrop-filter: blur(10px);
+  margin: auto;
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   padding: 40px 50px;
   border-radius: 20px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08);
-  width: 90%;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+  width: 100%;
   max-width: 650px;
-  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-sizing: border-box;
+  border: 1px solid var(--card-border);
 }
 
 .config-header {
@@ -38,13 +44,13 @@ body {
 
 .configuration-title {
   font-size: 2.2rem;
-  font-weight: 800;
-  color: #1a1a2e;
+  font-weight: 700;
+  color: var(--text-primary);
   margin: 0 0 10px 0;
 }
 
 .config-subtitle {
-  color: #666;
+  color: var(--text-secondary);
   font-size: 1.05rem;
   margin: 0;
 }
@@ -55,14 +61,14 @@ body {
 
 .section-title {
   font-size: 1.2rem;
-  color: #333;
+  color: var(--text-primary);
   margin: 0 0 5px 0;
   font-weight: 700;
 }
 
 .section-desc {
   font-size: 0.9rem;
-  color: #777;
+  color: var(--text-secondary);
   margin: 0 0 15px 0;
 }
 
@@ -73,8 +79,8 @@ body {
 
 .config-card {
   flex: 1;
-  background: #fff;
-  border: 2px solid #eaedf1;
+  background: var(--card-bg);
+  border: 2px solid var(--card-border);
   border-radius: 12px;
   padding: 20px;
   cursor: pointer;
@@ -84,14 +90,14 @@ body {
 }
 
 .config-card:hover {
-  border-color: #bbd0e8;
+  border-color: var(--card-border-selected);
   transform: translateY(-2px);
-  box-shadow: 0 5px 15px rgba(0,0,0,0.05);
+  box-shadow: 0 5px 15px rgba(0,0,0,0.1);
 }
 
 .config-card.selected {
-  border-color: #007bff;
-  background: #f4f9ff;
+  border-color: var(--card-border-selected);
+  background: var(--card-bg-selected);
   box-shadow: 0 5px 20px rgba(0, 123, 255, 0.15);
 }
 
@@ -118,28 +124,28 @@ body {
 
 .card-title {
   font-weight: 700;
-  color: #2c3e50;
+  color: var(--text-primary);
   font-size: 1.05rem;
 }
 
 .card-desc {
   font-size: 0.85rem;
-  color: #6c7a89;
+  color: var(--text-secondary);
   line-height: 1.4;
   margin: 0;
 }
 
 .advanced-settings {
-  background: #f8f9fa;
+  background: var(--card-bg);
   border-radius: 8px;
   padding: 10px 15px;
   margin-bottom: 30px;
-  border: 1px solid #eaedf1;
+  border: 1px solid var(--card-border);
 }
 
 .advanced-settings summary {
   font-weight: 600;
-  color: #555;
+  color: var(--text-primary);
   cursor: pointer;
   outline: none;
 }
@@ -150,14 +156,16 @@ body {
 
 .advanced-group label {
   font-weight: 600;
-  color: #333;
+  color: var(--text-primary);
   display: block;
   margin-bottom: 8px;
 }
 
 .advanced-group input[type="text"] {
   padding: 12px;
-  border: 1px solid #ddd;
+  border: 1px solid var(--card-border);
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
   border-radius: 8px;
   font-size: 15px;
   width: 100%;
@@ -166,15 +174,15 @@ body {
 }
 
 .advanced-group input[type="text"]:focus {
-  border-color: #007bff;
+  border-color: var(--system-blue);
   outline: none;
-  box-shadow: 0 0 0 3px rgba(0,123,255,0.1);
+  box-shadow: 0 0 0 3px rgba(0,122,255,0.2);
 }
 
 .help-text {
   display: block;
   margin-top: 6px;
-  color: #888;
+  color: var(--text-secondary);
 }
 
 .action-section {
@@ -183,25 +191,23 @@ body {
 
 .configure-button {
   padding: 16px 32px;
-  background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+  background: var(--system-blue);
   color: white;
   border: none;
   border-radius: 30px;
   font-size: 1.1rem;
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: opacity 0.2s ease;
   width: 100%;
   max-width: 350px;
-  box-shadow: 0 4px 15px rgba(0, 123, 255, 0.3);
   display: inline-flex;
   justify-content: center;
   align-items: center;
 }
 
 .configure-button:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(0, 123, 255, 0.4);
+  opacity: 0.8;
 }
 
 .configure-button:disabled {
@@ -240,21 +246,23 @@ body {
 }
 
 .error-message {
-  color: #dc3545;
-  background-color: #f8d7da;
+  color: var(--alert-critical-text);
+  background-color: var(--alert-critical-bg);
   padding: 12px;
   border-radius: 8px;
-  border: 1px solid #f5c6cb;
+  border: 1px solid var(--alert-critical-border);
   margin-top: 1rem;
   font-weight: 500;
 }
 
 /* Monitor Styles */
 .monitor-container {
-  font-family: Arial, sans-serif;
+  position: relative;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   margin: 0;
   padding: 20px;
-  background-color: #f5f5f5;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
   min-height: 100vh;
   width: 100vw;
   box-sizing: border-box;
@@ -262,7 +270,7 @@ body {
 
 .monitor-title {
   text-align: center;
-  color: #333;
+  color: var(--text-primary);
   margin-bottom: 1rem;
 }
 
@@ -275,13 +283,13 @@ body {
 }
 
 .status.connected {
-  background-color: #d4edda;
-  color: #155724;
+  background-color: var(--success-bg);
+  color: var(--success-text);
 }
 
 .status.disconnected {
-  background-color: #f8d7da;
-  color: #721c24;
+  background-color: var(--alert-critical-bg);
+  color: var(--alert-critical-text);
 }
 
 .stats {
@@ -295,7 +303,7 @@ body {
 .stat-item {
   text-align: center;
   flex: 1;
-  background-color: white;
+  background-color: var(--card-bg);
   padding: 1rem;
   border-radius: 8px;
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
@@ -304,33 +312,33 @@ body {
 .stat-value {
   font-size: 2em;
   font-weight: bold;
-  color: #333;
+  color: var(--text-primary);
 }
 
 .stat-value.critical {
-  color: #dc3545;
+  color: var(--system-red);
 }
 
 .stat-value.deviation {
-  color: #ffc107;
+  color: var(--system-yellow);
 }
 
 .stat-value.active {
-  color: #28a745;
+  color: var(--system-green);
 }
 
 .stat-value.total {
-  color: #007bff;
+  color: var(--system-blue);
 }
 
 .stat-label {
-  color: #666;
+  color: var(--text-secondary);
   font-size: 0.9em;
 }
 
 .mode-indicator {
   padding: 10px;
-  background-color: white;
+  background-color: var(--card-bg);
   border-radius: 5px;
   margin-bottom: 20px;
   text-align: center;
@@ -348,39 +356,40 @@ body {
 
 button {
   padding: 10px 20px;
-  background-color: #007bff;
+  background-color: var(--system-blue);
   color: white;
   border: none;
-  border-radius: 5px;
+  border-radius: 8px;
   cursor: pointer;
   margin-right: 10px;
-  transition: background-color 0.3s;
+  transition: opacity 0.2s;
+  font-weight: 600;
 }
 
 button:hover {
-  background-color: #0056b3;
+  opacity: 0.8;
 }
 
 button.danger {
-  background-color: #dc3545;
+  background-color: var(--system-red);
 }
 
 button.danger:hover {
-  background-color: #c82333;
+  opacity: 0.8;
 }
 
 button.success {
-  background-color: #28a745;
+  background-color: var(--system-green);
 }
 
 button.success:hover {
-  background-color: #218838;
+  opacity: 0.8;
 }
 
 .sync-status {
-  background-color: #d1ecf1;
-  border-color: #bee5eb;
-  color: #0c5460;
+  background-color: var(--card-bg-selected);
+  border-color: var(--card-border-selected);
+  color: var(--text-primary);
   padding: 10px;
   margin: 10px 0;
   border-radius: 5px;
@@ -388,8 +397,8 @@ button.success:hover {
 }
 
 .sync-status.error {
-  background-color: #f8d7da;
-  color: #721c24;
+  background-color: var(--alert-critical-bg);
+  color: var(--alert-critical-text);
 }
 
 .alerts {
@@ -446,50 +455,50 @@ button.success:hover {
 }
 
 .low { 
-  background-color: #fff3cd;
-  border-left: 4px solid #ffc107;
+  background-color: var(--alert-dev-bg);
+  border-left: 4px solid var(--system-yellow);
 }
 
 .medium { 
-  background-color: #f8d7da;
-  border-left: 4px solid #dc3545;
+  background-color: var(--alert-critical-bg);
+  border-left: 4px solid var(--system-red);
 }
 
 .high { 
-  background-color: #f5c6cb;
-  border-left: 4px solid #dc3545;
+  background-color: var(--alert-critical-bg);
+  border-left: 4px solid var(--system-red);
 }
 
 .critical { 
-  color: white;
-  border-left: 4px solid #ff0000;
+  color: var(--text-primary);
+  border-left: 4px solid var(--system-red);
 }
 
 .critical-stat { 
-  color: #ff0000;
-  border-left: 4px solid #ff0000;
+  color: var(--system-red);
+  border-left: 4px solid var(--system-red);
 }
 
 .critical .timestamp {
-  color: #ddd;
+  color: var(--text-secondary);
 }
 
 .deviation {
-  background-color: #fff3cd;
-  border: 1px solid #ffeaa7;
+  background-color: var(--alert-dev-bg);
+  border: 1px solid var(--alert-dev-border);
 }
 
 .deviation-stat {
-  color: #ffc107;
+  color: var(--system-yellow);
 }
 
 .critical-alert {
-  background-color: #f8d7da;
-  border: 1px solid #f5c6cb;
+  background-color: var(--alert-critical-bg);
+  border: 1px solid var(--alert-critical-border);
 }
 
 .alert-badge {
-  background-color: #dc3545;
+  background-color: var(--system-red);
   color: white;
   padding: 0.25rem 0.5rem;
   border-radius: 12px;
@@ -498,8 +507,8 @@ button.success:hover {
 }
 
 .alert-badge.deviation {
-  background-color: #ffc107;
-  color: #212529;
+  background-color: var(--system-yellow);
+  color: #000;
 }
 
 .event-history {
@@ -520,7 +529,33 @@ button.success:hover {
 .no-alerts {
   text-align: center;
   padding: 2rem;
-  background-color: white;
+  background-color: var(--card-bg);
   border-radius: 8px;
-  color: #666;
+  color: var(--text-secondary);
+}
+.theme-toggle {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  background: var(--glass-bg);
+  border: 1px solid var(--card-border);
+  color: var(--text-primary);
+  border-radius: 50%;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 1000;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  padding: 0;
+  transition: all 0.2s ease;
+}
+
+.theme-toggle:hover {
+  transform: scale(1.05);
+  background: var(--card-bg-selected);
+  color: var(--system-blue);
+  opacity: 1;
 }

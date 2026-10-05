@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Timer, Building2, Play, RotateCcw, AlertTriangle, Sun, Moon } from 'lucide-react';
 import "./App.css"
 
 const GOTRMonitor = () => {
@@ -10,6 +11,18 @@ const GOTRMonitor = () => {
   const [conformance, setConformance] = useState('continue');
   const [configError, setConfigError] = useState('');
   const [isConfiguring, setIsConfiguring] = useState(false);
+  const [theme, setTheme] = useState(localStorage.getItem('theme') || 'dark');
+
+  useEffect(() => {
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
+  const toggleTheme = () => setTheme(prev => prev === 'dark' ? 'light' : 'dark');
 
   // Connection state
   const [connectionStatus, setConnectionStatus] = useState('disconnected');
@@ -329,6 +342,9 @@ const GOTRMonitor = () => {
   if (!isConfigured) {
     return (
       <div className="configuration-container">
+        <button className="theme-toggle" onClick={toggleTheme} aria-label="Toggle Theme">
+          {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+        </button>
         <div className="configuration-form modern-config">
           <div className="config-header">
             <h1 className="configuration-title">GO-TR Monitor</h1>
@@ -344,7 +360,7 @@ const GOTRMonitor = () => {
                 onClick={() => setMode('online')}
               >
                 <div className="card-header">
-                  <span className="card-icon">⏱️</span>
+                  <span className="card-icon"><Timer size={24} /></span>
                   <span className="card-title">Online (Control-Flow)</span>
                 </div>
                 <p className="card-desc">Standard mode. Evaluates if the event sequence follows the master Petri Net strictly (detects missing tokens or skipped tasks).</p>
@@ -354,7 +370,7 @@ const GOTRMonitor = () => {
                 onClick={() => setMode('multi')}
               >
                 <div className="card-header">
-                  <span className="card-icon">🏢</span>
+                  <span className="card-icon"><Building2 size={24} /></span>
                   <span className="card-title">Multi-organizational</span>
                 </div>
                 <p className="card-desc">Advanced mode. Evaluates control-flow PLUS organizational rules (validates if the actor has the correct Role and Team per the YAML config).</p>
@@ -371,7 +387,7 @@ const GOTRMonitor = () => {
                 onClick={() => setConformance('continue')}
               >
                 <div className="card-header">
-                  <span className="card-icon">▶️</span>
+                  <span className="card-icon"><Play size={24} /></span>
                   <span className="card-title">Continue</span>
                 </div>
                 <p className="card-desc">Resume from where it left off. Preserves existing Replay Images in Neo4j and resumes Kafka from the last committed offset.</p>
@@ -381,7 +397,7 @@ const GOTRMonitor = () => {
                 onClick={() => setConformance('reset')}
               >
                 <div className="card-header">
-                  <span className="card-icon">🔄</span>
+                  <span className="card-icon"><RotateCcw size={24} /></span>
                   <span className="card-title">Reset (Clean Slate)</span>
                 </div>
                 <p className="card-desc">Start fresh. Deletes all Replay Images in Neo4j, flushes memory buffers, and resets Kafka to read from the beginning.</p>
@@ -420,8 +436,8 @@ const GOTRMonitor = () => {
             </button>
             
             {configError && (
-              <div className="error-message bounce-in">
-                ⚠️ {configError}
+              <div className="error-message bounce-in" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <AlertTriangle size={18} /> {configError}
               </div>
             )}
           </div>
@@ -433,6 +449,9 @@ const GOTRMonitor = () => {
   // Main Monitor Component
   return (
     <div className="monitor-container">
+      <button className="theme-toggle" onClick={toggleTheme} aria-label="Toggle Theme">
+        {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+      </button>
       <h1 className="monitor-title">GO-TR Real-time Deviation Monitor</h1>
       
       <div className={`status ${connectionStatus}`}>
@@ -502,20 +521,20 @@ const GOTRMonitor = () => {
                 <div className="timestamp">{new Date(alert.timestamp).toLocaleString()}</div>
                 <div className="case-id">Case: {alert.case_id}</div>
                 
-                <div className="deviation-title" style={{marginTop: "8px", fontSize: "1.1em", color: alert.type === 'critical_alert' ? '#ff4d4f' : '#faad14', display: 'flex', flexDirection: 'column', gap: '4px'}}>
+                <div className="deviation-title" style={{marginTop: "8px", fontSize: "1.1em", color: alert.type === 'critical_alert' ? 'var(--system-red)' : 'var(--system-yellow)', display: 'flex', flexDirection: 'column', gap: '4px'}}>
                   {(alert.violations && alert.violations.length > 0) ? (
                     alert.violations.map((v, idx) => (
-                      <strong key={idx}>⚠️ {getDeviationTitle(v.type)}</strong>
+                      <strong key={idx} style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><AlertTriangle size={18} /> {getDeviationTitle(v.type)}</strong>
                     ))
                   ) : (
-                    <strong>⚠️ {getDeviationTitle(alert.deviation_type)}</strong>
+                    <strong style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><AlertTriangle size={18} /> {getDeviationTitle(alert.deviation_type)}</strong>
                   )}
                 </div>
 
-                <div className="deviation-context" style={{marginTop: "8px", backgroundColor: "rgba(0,0,0,0.2)", padding: "10px", borderRadius: "4px"}}>
+                <div className="deviation-context" style={{marginTop: "8px", backgroundColor: "var(--card-border)", padding: "10px", borderRadius: "4px"}}>
                   {(alert.violations && alert.violations.length > 0) ? (
                     alert.violations.map((v, idx) => (
-                      <div key={idx} style={{marginBottom: idx < alert.violations.length - 1 ? '10px' : '0', paddingBottom: idx < alert.violations.length - 1 ? '10px' : '0', borderBottom: idx < alert.violations.length - 1 ? '1px solid rgba(255,255,255,0.1)' : 'none'}}>
+                      <div key={idx} style={{marginBottom: idx < alert.violations.length - 1 ? '10px' : '0', paddingBottom: idx < alert.violations.length - 1 ? '10px' : '0', borderBottom: idx < alert.violations.length - 1 ? '1px solid var(--card-border)' : 'none'}}>
                         {v.type === 'missing_token' && (
                           <div>
                             <strong>Context:</strong> Activity <code>{v.activity || alert.details?.activity}</code> was executed, but it is out of order or skipped a required prerequisite in the SOP.
@@ -568,7 +587,7 @@ const GOTRMonitor = () => {
                 <div><strong>Anomaly Score:</strong> {alert.cumulative_score?.toFixed(2) || '0.00'}</div>
                 
                 {alert.event_history && alert.event_history.length > 0 && (
-                  <div style={{marginTop: "8px", fontSize: "0.9em", color: "#888"}}>
+                  <div style={{marginTop: "8px", fontSize: "0.9em", color: "var(--text-secondary)"}}>
                     <strong>Recent History:</strong> {alert.event_history.join(' ➔ ')}
                   </div>
                 )}
