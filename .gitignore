@@ -12,3 +12,5 @@ AGENTS.md
 __pycache__/
 *.py[cod]
 *$py.class
+# Runtime state: active Kafka consumer group for GO-TR continue/reset
+.kafka_group_state.json

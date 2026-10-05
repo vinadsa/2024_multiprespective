@@ -3,8 +3,8 @@
   line-height: 1.5;
   font-weight: 400;
 
-  color-scheme: light dark;
-  
+  color-scheme: light;
+
   /* Apple HIG Semantic Colors */
   --bg-primary: #f2f2f7;
   --bg-secondary: #ffffff;
@@ -15,12 +15,16 @@
   --system-red: #ff3b30;
   --system-green: #34c759;
   --system-yellow: #ffcc00;
+  --system-gray: #8e8e93;
   --card-border: rgba(0, 0, 0, 0.1);
   --glass-bg: rgba(255, 255, 255, 0.7);
+  --focus-ring: rgba(0, 122, 255, 0.35);
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.1);
 
   --card-bg: #ffffff;
   --card-bg-selected: #f4f9ff;
   --card-border-selected: #007aff;
+  --context-bg: rgba(0, 0, 0, 0.05);
   --alert-critical-bg: #f8d7da;
   --alert-critical-border: #f5c6cb;
   --alert-critical-text: #721c24;
@@ -39,78 +43,82 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
+:root.dark {
+  color-scheme: dark;
+
+  --bg-primary: #000000;
+  --bg-secondary: #1c1c1e;
+  --bg-tertiary: #2c2c2e;
+  --text-primary: #ffffff;
+  --text-secondary: #ebebf599;
+  --system-blue: #0a84ff;
+  --system-red: #ff453a;
+  --system-green: #30d158;
+  --system-yellow: #ffd60a;
+  --system-gray: #636366;
+  --card-border: rgba(255, 255, 255, 0.15);
+  --glass-bg: rgba(28, 28, 30, 0.7);
+  --focus-ring: rgba(10, 132, 255, 0.45);
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.4);
+
+  --card-bg: #1c1c1e;
+  --card-bg-selected: #1c2c3e;
+  --card-border-selected: #0a84ff;
+  --context-bg: rgba(255, 255, 255, 0.06);
+  --alert-critical-bg: rgba(255, 69, 58, 0.15);
+  --alert-critical-border: rgba(255, 69, 58, 0.4);
+  --alert-critical-text: #ff8b85;
+  --alert-dev-bg: rgba(255, 214, 10, 0.15);
+  --alert-dev-border: rgba(255, 214, 10, 0.4);
+  --alert-dev-text: #ffe045;
+  --success-bg: rgba(48, 209, 88, 0.15);
+  --success-text: #70df8d;
 }
-a:hover {
-  color: #535bf2;
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }
 
 body {
   margin: 0;
-  display: flex;
-  place-items: center;
   min-height: 100vh;
-  min-width: 100vw;
-}
-
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
-}
-
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: #1a1a1a;
-  cursor: pointer;
-  transition: border-color 0.25s;
-}
-button:hover {
-  border-color: #646cff;
-}
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
-}
-
-:root.dark {
-    --bg-primary: #000000;
-    --bg-secondary: #1c1c1e;
-    --bg-tertiary: #2c2c2e;
-    --text-primary: #ffffff;
-    --text-secondary: #ebebf599;
-    --system-blue: #0a84ff;
-    --system-red: #ff453a;
-    --system-green: #30d158;
-    --system-yellow: #ffd60a;
-    --card-border: rgba(255, 255, 255, 0.15);
-    --glass-bg: rgba(28, 28, 30, 0.7);
-    
-    --card-bg: #1c1c1e;
-    --card-bg-selected: #1c2c3e;
-    --card-border-selected: #0a84ff;
-    --alert-critical-bg: rgba(255, 69, 58, 0.15);
-    --alert-critical-border: rgba(255, 69, 58, 0.4);
-    --alert-critical-text: #ff8b85;
-    --alert-dev-bg: rgba(255, 214, 10, 0.15);
-    --alert-dev-border: rgba(255, 214, 10, 0.4);
-    --alert-dev-text: #ffe045;
-    --success-bg: rgba(48, 209, 88, 0.15);
-    --success-text: #70df8d;
-
-  color: var(--text-primary);
+  overflow-x: hidden;
   background-color: var(--bg-primary);
+  color: var(--text-primary);
 }
-:root.dark a:hover {
-  color: var(--system-blue);
+
+button,
+input {
+  font: inherit;
 }
-:root.dark button {
-  background-color: var(--bg-tertiary);
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: var(--context-bg);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

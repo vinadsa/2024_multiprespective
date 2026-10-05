@@ -123,6 +123,7 @@ class GOTRKafkaConsumer:
         # ✅ STATE MANAGEMENT: This is what was extracted from tokenBasedReplay
         # These variables now live here to track state across all events.
         self.active_cases = set()
+        self.finished_cases = set()
         self.anomaly_scores = defaultdict(float)
         self.case_event_history = defaultdict(list)
         self.unknown_activities = defaultdict(list)
@@ -203,6 +204,7 @@ class GOTRKafkaConsumer:
                 # Clear state
                 with consumer_instance.state_lock:  # ✅ PROTECTED
                     consumer_instance.active_cases.clear()
+                    consumer_instance.finished_cases.clear()
                     consumer_instance.anomaly_scores.clear()
                     consumer_instance.case_event_history.clear()
                     consumer_instance.unknown_activities.clear()
@@ -566,19 +568,47 @@ class GOTRKafkaConsumer:
         
         print("Master model initialized successfully!")
         
+    # File that remembers which consumer group is currently "active".
+    # Reset creates a fresh group; Continue must reuse THAT group, otherwise it
+    # falls back to the base group whose committed offset predates the reset and
+    # re-consumes events that were already replayed (duplicate/critical alerts).
+    GROUP_STATE_FILE = Path(__file__).with_name('.kafka_group_state.json')
+
+    def _load_active_group_id(self):
+        try:
+            group_id = json.loads(self.GROUP_STATE_FILE.read_text()).get('group_id')
+            if group_id:
+                return group_id
+        except (FileNotFoundError, ValueError, OSError):
+            pass
+        return self.kafka_config['group_id']
+
+    def _save_active_group_id(self, group_id):
+        try:
+            self.GROUP_STATE_FILE.write_text(json.dumps({
+                'group_id': group_id,
+                'updated_at': datetime.now().isoformat(),
+            }))
+        except OSError as e:
+            print(f"Warning: could not persist active consumer group: {e}")
+
     def initialize_kafka_consumer(self,status):
         """Initialize Kafka consumer"""
         print(f"Initializing Kafka consumer with {status}")
         
-        import uuid
         current_kafka_config = self.kafka_config.copy()
         
         if status == 'reset':
             # Create a completely new consumer group to ensure we don't pick up
             # old committed offsets or buffered messages from the past run.
-            new_group = f"{current_kafka_config['group_id']}_reset_{uuid.uuid4().hex[:8]}"
+            new_group = f"{self.kafka_config['group_id']}_reset_{uuid.uuid4().hex[:8]}"
             current_kafka_config['group_id'] = new_group
+            self._save_active_group_id(new_group)
             print(f"Reset mode: Using new unique group_id: {new_group}")
+        else:
+            # Continue: resume the group used by the last run (incl. the last reset).
+            current_kafka_config['group_id'] = self._load_active_group_id()
+            print(f"Continue mode: Resuming group_id: {current_kafka_config['group_id']}")
 
         self.consumer = KafkaConsumer(
             'pm.test.events.raw',
@@ -860,7 +890,7 @@ class GOTRKafkaConsumer:
                         # ✅ STEP 3: Initialize case (short lock)
                         case_is_new = False
                         with self.state_lock:
-                            if p_id not in self.active_cases:
+                            if p_id not in self.active_cases and p_id not in self.finished_cases:
                                 case_is_new = True
                                 self.active_cases.add(p_id)
 
@@ -887,6 +917,7 @@ class GOTRKafkaConsumer:
 
                             if activity == 'Return the item':
                                 self.active_cases.discard(p_id)
+                                self.finished_cases.add(p_id)
 
                         # ✅ STEP 7: Send alerts outside lock
                         if result['status'] == 'deviation':
