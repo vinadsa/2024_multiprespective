@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import { MODE_LABELS } from '../config';
 import { useAlertStream } from '../hooks/useAlertStream';
 import { exportAlertsToCsv } from '../lib/exportCsv';
+import ActiveCasesTracker from './ActiveCasesTracker';
 import AlertList from './AlertList';
 import StatsBar from './StatsBar';
 
@@ -12,13 +14,19 @@ const CONNECTION_LABELS = {
 };
 
 export default function MonitorView({ config, onReconfigure }) {
-  const { alerts, stats, connectionStatus, statusMessage, syncNow, clearAlerts } = useAlertStream(config);
+  const { alerts, stats, activeCasesList, connectionStatus, statusMessage, syncNow, clearAlerts } = useAlertStream(config);
+  const [isTrackerOpen, setIsTrackerOpen] = useState(true);
+  const [selectedCaseId, setSelectedCaseId] = useState(null);
 
   const handleClear = () => {
     if (window.confirm('Are you sure you want to clear all alerts? This only affects your local view.')) {
       clearAlerts();
     }
   };
+
+  const displayedAlerts = selectedCaseId
+    ? alerts.filter((a) => String(a.case_id) === String(selectedCaseId))
+    : alerts;
 
   return (
     <main className="monitor-container">
@@ -28,7 +36,19 @@ export default function MonitorView({ config, onReconfigure }) {
         {CONNECTION_LABELS[connectionStatus]}
       </div>
 
-      <StatsBar stats={stats} />
+      <StatsBar
+        stats={stats}
+        onToggleActiveCases={() => setIsTrackerOpen((prev) => !prev)}
+        isExpanded={isTrackerOpen}
+      />
+
+      <ActiveCasesTracker
+        activeCases={activeCasesList}
+        isExpanded={isTrackerOpen}
+        onToggleExpand={() => setIsTrackerOpen((prev) => !prev)}
+        selectedCaseId={selectedCaseId}
+        onSelectCase={setSelectedCaseId}
+      />
 
       <div className="mode-indicator">
         Mode: <strong>{MODE_LABELS[config.mode] ?? config.mode}</strong>
@@ -38,7 +58,7 @@ export default function MonitorView({ config, onReconfigure }) {
         <button type="button" id="clear-alerts" className="btn btn--danger" onClick={handleClear} disabled={alerts.length === 0}>
           Clear All Alerts
         </button>
-        <button type="button" id="export-alerts" className="btn btn--success" onClick={() => exportAlertsToCsv(alerts)} disabled={alerts.length === 0}>
+        <button type="button" id="export-alerts" className="btn btn--success" onClick={() => exportAlertsToCsv(displayedAlerts)} disabled={displayedAlerts.length === 0}>
           Export Alerts
         </button>
         <button type="button" id="sync-alerts" className="btn" onClick={syncNow}>
@@ -47,7 +67,19 @@ export default function MonitorView({ config, onReconfigure }) {
         <button type="button" id="reconfigure" className="btn btn--secondary" onClick={onReconfigure}>
           Reconfigure
         </button>
+        {selectedCaseId && (
+          <button type="button" className="btn btn--secondary" onClick={() => setSelectedCaseId(null)}>
+            ✕ Reset Filter Case #{selectedCaseId}
+          </button>
+        )}
       </div>
+
+      {selectedCaseId && (
+        <div className="filter-banner">
+          Menampilkan alert khusus <strong>Case #{selectedCaseId}</strong> ({displayedAlerts.length} dari {alerts.length} total alert).
+          <button type="button" className="btn-link" onClick={() => setSelectedCaseId(null)}>Tampilkan Semua</button>
+        </div>
+      )}
 
       {statusMessage && (
         <div className={`sync-status${statusMessage.isError ? ' sync-status--error' : ''}`} role="status">
@@ -55,7 +87,7 @@ export default function MonitorView({ config, onReconfigure }) {
         </div>
       )}
 
-      <AlertList alerts={alerts} />
+      <AlertList alerts={displayedAlerts} />
     </main>
   );
 }

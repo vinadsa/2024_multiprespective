@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ALERT_MESSAGE_TYPES,
+  CASE_LIFECYCLE_TYPE,
+  CONFIG_MESSAGE_TYPE,
   MAX_STORED_ALERTS,
   PERSIST_DEBOUNCE_MS,
   RECONNECT_DELAY_MS,
@@ -31,6 +33,7 @@ export function useAlertStream({ apiUrl, wsUrl }) {
   const [alerts, setAlerts] = useState(initial.alerts);
   const [connectionStatus, setConnectionStatus] = useState('connecting');
   const [activeCases, setActiveCases] = useState(0);
+  const [activeCasesList, setActiveCasesList] = useState([]);
   const [statusMessage, setStatusMessage] = useState(null);
 
   // Latest alerts for async callbacks (avoids stale closures).
@@ -72,6 +75,7 @@ export function useAlertStream({ apiUrl, wsUrl }) {
     try {
       const status = await fetchStatus(apiUrl, abortRef.current?.signal);
       if (typeof status.active_cases === 'number') setActiveCases(status.active_cases);
+      if (Array.isArray(status.active_cases_list)) setActiveCasesList(status.active_cases_list);
     } catch (error) {
       if (error.name !== 'AbortError') console.error('Error fetching server status:', error);
     }
@@ -139,7 +143,27 @@ export function useAlertStream({ apiUrl, wsUrl }) {
         } catch {
           return;
         }
-        if (ALERT_MESSAGE_TYPES.has(data.type)) ingest([data]);
+        if (ALERT_MESSAGE_TYPES.has(data.type)) {
+          ingest([data]);
+        } else if (data.type === CASE_LIFECYCLE_TYPE) {
+          if (typeof data.active_cases_count === 'number') {
+            setActiveCases(data.active_cases_count);
+          }
+          if (Array.isArray(data.active_cases)) {
+            setActiveCasesList(data.active_cases);
+          }
+          if (data.action === 'started') {
+            showStatus(`Case ${data.case_id} started: ${data.activity}`);
+          } else if (data.action === 'completed') {
+            showStatus(`Case ${data.case_id} completed (Fitness: ${(data.fitness ?? 1).toFixed(2)})`);
+          } else if (data.action === 'timeout') {
+            showStatus(`Case ${data.case_id} timed out after 30s inactivity.`);
+          }
+        } else if (data.type === CONFIG_MESSAGE_TYPE) {
+          setActiveCases(0);
+          setActiveCasesList([]);
+          refreshStatus();
+        }
       };
 
       socket.onerror = (error) => {
@@ -161,7 +185,7 @@ export function useAlertStream({ apiUrl, wsUrl }) {
       clearTimeout(retryTimer);
       socket?.close();
     };
-  }, [wsUrl, ingest, sync]);
+  }, [wsUrl, ingest, sync, refreshStatus, showStatus]);
 
   // Debounced persistence instead of a blind 5s interval.
   useEffect(() => {
@@ -191,5 +215,5 @@ export function useAlertStream({ apiUrl, wsUrl }) {
     };
   }, [alerts, activeCases]);
 
-  return { alerts, stats, connectionStatus, statusMessage, syncNow, clearAlerts };
+  return { alerts, stats, activeCasesList, connectionStatus, statusMessage, syncNow, clearAlerts };
 }

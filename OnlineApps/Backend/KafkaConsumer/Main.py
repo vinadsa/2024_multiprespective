@@ -124,6 +124,7 @@ class GOTRKafkaConsumer:
         # These variables now live here to track state across all events.
         self.active_cases = set()
         self.finished_cases = set()
+        self.case_metadata = {}
         self.anomaly_scores = defaultdict(float)
         self.case_event_history = defaultdict(list)
         self.unknown_activities = defaultdict(list)
@@ -205,6 +206,7 @@ class GOTRKafkaConsumer:
                 with consumer_instance.state_lock:  # ✅ PROTECTED
                     consumer_instance.active_cases.clear()
                     consumer_instance.finished_cases.clear()
+                    consumer_instance.case_metadata.clear()
                     consumer_instance.anomaly_scores.clear()
                     consumer_instance.case_event_history.clear()
                     consumer_instance.unknown_activities.clear()
@@ -255,7 +257,9 @@ class GOTRKafkaConsumer:
                 "timestamp": datetime.now().isoformat(),
                 "mode": mode,
                 "conformance": conformance,
-                "message": f"Consumer configured in {mode} mode with {conformance} conformance"
+                "message": f"Consumer configured in {mode} mode with {conformance} conformance",
+                "active_cases_count": 0,
+                "active_cases": []
             })
 
             return {
@@ -296,37 +300,80 @@ class GOTRKafkaConsumer:
             with recent_alerts_lock:
                 alert_count = len(recent_alerts)
 
+            active_list = consumer_instance.get_active_cases_snapshot()
+
             return {
                 "is_configured": consumer_instance.is_configured,
                 "mode": consumer_instance.check,
                 "is_running": consumer_instance.is_running,
-                "active_cases": len(consumer_instance.active_cases),
+                "active_cases": len(active_list),
+                "active_cases_list": active_list,
                 "active_connections": len(manager.active_connections),
                 "total_alerts": alert_count,
                 "timestamp": datetime.now().isoformat()
             }
 
+        @app.get("/api/cases/active")
+        async def get_active_cases():
+            """Get detailed list of active cases"""
+            active_list = consumer_instance.get_active_cases_snapshot()
+            return {
+                "active_cases_count": len(active_list),
+                "cases": active_list,
+                "timestamp": datetime.now().isoformat()
+            }
 
         async def process_alert_queue():
-            """Background task to process alerts from the queue"""
+            """Background task to process alerts and lifecycle events from the queue"""
             while True:
                 try:
                     if not alert_queue.empty():
-                        alert_data = alert_queue.get_nowait()
+                        msg_data = alert_queue.get_nowait()
+                        msg_type = msg_data.get('type')
 
-                        # Add unique ID to each alert for de-duplication
-                        alert_data['alert_id'] = f"{alert_data['timestamp']}_{alert_data['case_id']}"
-
-                        # Store in recent alerts
-                        with recent_alerts_lock:
-                            recent_alerts.append(alert_data)
+                        # Only store deviation/critical alerts in recent_alerts history
+                        if msg_type in ('deviation_alert', 'critical_alert'):
+                            if 'alert_id' not in msg_data:
+                                msg_data['alert_id'] = f"{msg_data.get('timestamp')}_{msg_data.get('case_id')}"
+                            with recent_alerts_lock:
+                                recent_alerts.append(msg_data)
 
                         # Broadcast to connected clients
-                        await manager.broadcast(alert_data)
+                        await manager.broadcast(msg_data)
                     else:
-                        await asyncio.sleep(0.1)
+                        await asyncio.sleep(0.05)
                 except Exception as e:
-                    print(f"Error processing alert: {e}")
+                    print(f"Error processing alert/message: {e}")
+
+        async def check_inactivity_timeouts():
+            """Sliding Inactivity Window: Checks for abandoned cases without events for > 30s."""
+            while True:
+                try:
+                    await asyncio.sleep(2.0)
+                    now = time.time()
+                    timed_out_cases = []
+                    with consumer_instance.state_lock:
+                        for p_id, meta in list(consumer_instance.case_metadata.items()):
+                            if now - meta.get("last_event_time", now) > 30.0:
+                                timed_out_cases.append(p_id)
+
+                    for p_id in timed_out_cases:
+                        with consumer_instance.state_lock:
+                            consumer_instance.active_cases.discard(p_id)
+                            consumer_instance.finished_cases.add(p_id)
+                            meta = consumer_instance.case_metadata.pop(p_id, {})
+
+                        with consumer_instance.neo4j_lock:
+                            fitness_summary = GO_TR.finalize_case(p_id, consumer_instance.session)
+
+                        print(f"⏱️ Case {p_id} timed out after 30s inactivity (Fitness: {fitness_summary.get('fitness')})")
+                        consumer_instance.broadcast_case_lifecycle(p_id, "timeout", {
+                            "fitness": fitness_summary.get("fitness", 0.0),
+                            "recap": fitness_summary,
+                            "reason": "inactivity_timeout_30s"
+                        })
+                except Exception as e:
+                    print(f"Error checking inactivity timeouts: {e}")
         
         
 
@@ -438,6 +485,7 @@ class GOTRKafkaConsumer:
         @app.on_event("startup")
         async def startup_event():
             asyncio.create_task(process_alert_queue())
+            asyncio.create_task(check_inactivity_timeouts())
 
         return app
     
@@ -454,6 +502,42 @@ class GOTRKafkaConsumer:
         """Send deviation alert through WebSocket"""
         self.alert_queue.put(alert_data)
         print("data out sended")
+
+    def get_active_cases_snapshot(self):
+        """Returns a list of dicts describing each currently active case."""
+        snapshot = []
+        now = time.time()
+        with self.state_lock:
+            for p_id in sorted(list(self.active_cases)):
+                meta = self.case_metadata.get(p_id, {})
+                started_ts = meta.get("started_at")
+                last_event_time = meta.get("last_event_time", now)
+                duration_sec = max(0, int(now - meta.get("start_epoch", last_event_time)))
+                snapshot.append({
+                    "case_id": str(p_id),
+                    "started_at": started_ts or datetime.now().isoformat(),
+                    "last_activity": meta.get("last_activity", "Processing"),
+                    "event_count": meta.get("event_count", 0),
+                    "anomaly_score": round(self.anomaly_scores.get(p_id, 0.0), 2),
+                    "has_deviations": meta.get("has_deviations", False),
+                    "duration_seconds": duration_sec,
+                    "idle_seconds": max(0, int(now - last_event_time))
+                })
+        return snapshot
+
+    def broadcast_case_lifecycle(self, case_id: str, action: str, details: dict = None):
+        """Enqueues a case lifecycle mutation event to WebSocket clients."""
+        active_list = self.get_active_cases_snapshot()
+        payload = {
+            "type": "case_lifecycle",
+            "action": action,
+            "case_id": str(case_id),
+            "timestamp": datetime.now().isoformat(),
+            "active_cases_count": len(self.active_cases),
+            "active_cases": active_list,
+            **(details or {})
+        }
+        self.alert_queue.put(payload)
     #-------------- Web Socket Fast API end -------------------
 
     # ------------- Neo4j Initialization ----------------------
@@ -883,23 +967,69 @@ class GOTRKafkaConsumer:
                         kafka_event = message.value
                         p_id = kafka_event.get('trace_id')
                         activity = kafka_event.get('activity')
+                        event_index = kafka_event.get('event_index', None)
 
                         if not p_id or not activity:
                             continue
 
-                        # ✅ STEP 3: Initialize case (short lock)
+                        p_id = str(p_id)
+                        now_epoch = time.time()
+                        now_iso = datetime.now().isoformat()
+
+                        # ✅ STEP 3: Case Initialization (Deterministic & Replay-Safe)
                         case_is_new = False
                         with self.state_lock:
-                            if p_id not in self.active_cases and p_id not in self.finished_cases:
+                            # Replay detection:
+                            # A case is new ONLY if:
+                            # 1. event_index == 0 (explicit start of trace or replay simulation)
+                            # 2. Case has never been seen before (not in active_cases and not in finished_cases)
+                            if event_index == 0:
                                 case_is_new = True
+                            elif p_id not in self.active_cases and p_id not in self.finished_cases:
+                                case_is_new = True
+                            else:
+                                case_is_new = False
+
+                            if case_is_new:
                                 self.active_cases.add(p_id)
+                                self.finished_cases.discard(p_id)
+                                self.anomaly_scores[p_id] = 0.0
+                                self.case_event_history[p_id] = []
+                                self.case_metadata[p_id] = {
+                                    "case_id": p_id,
+                                    "started_at": now_iso,
+                                    "start_epoch": now_epoch,
+                                    "last_activity": activity,
+                                    "last_event_time": now_epoch,
+                                    "event_count": 1,
+                                    "has_deviations": False
+                                }
+                            else:
+                                if p_id in self.finished_cases:
+                                    self.finished_cases.discard(p_id)
+                                    self.active_cases.add(p_id)
+
+                                meta = self.case_metadata.setdefault(p_id, {
+                                    "case_id": p_id,
+                                    "started_at": now_iso,
+                                    "start_epoch": now_epoch,
+                                    "event_count": 0,
+                                    "has_deviations": False
+                                })
+                                meta["last_activity"] = activity
+                                meta["last_event_time"] = now_epoch
+                                meta["event_count"] = meta.get("event_count", 0) + 1
 
                         # ✅ STEP 4: DB init outside state lock
                         if case_is_new:
                             with self.neo4j_lock:
                                 GO_TR.initialize_case_in_db(p_id, self.session)
+                            self.broadcast_case_lifecycle(p_id, "started", {
+                                "activity": activity,
+                                "started_at": now_iso
+                            })
 
-                        # ✅ STEP 5: Process event (no state lock needed)
+                        # ✅ STEP 5: Process event (Token Replay)
                         gotr_event = self.convert_kafka_event_to_gotr_format(kafka_event)
 
                         with self.neo4j_lock:
@@ -908,24 +1038,44 @@ class GOTRKafkaConsumer:
                                 self.states, self.places, self.check, self.session
                             )
 
-                        # ✅ STEP 6: Update state (short lock)
+                        # ✅ STEP 6: Update state
                         with self.state_lock:
                             self.case_event_history[p_id].append(activity)
 
                             if result['status'] == 'deviation':
                                 self._update_anomaly_scores(p_id, result)
-
-                            if activity == 'Return the item':
-                                self.active_cases.discard(p_id)
-                                self.finished_cases.add(p_id)
+                                if p_id in self.case_metadata:
+                                    self.case_metadata[p_id]["has_deviations"] = True
 
                         # ✅ STEP 7: Send alerts outside lock
                         if result['status'] == 'deviation':
                             self._send_deviation_alert_async(p_id, result)
 
-                        if activity == 'Return the item':
-                            with self.neo4j_lock:
-                                GO_TR.finalize_case(p_id, self.session)
+                        # ✅ STEP 8: MUTLAK Process Termination via Petri Net Marking (NO CHEATING!)
+                        is_finished = False
+                        fitness_summary = None
+                        with self.neo4j_lock:
+                            if GO_TR.is_case_finished(p_id, self.session):
+                                is_finished = True
+                                fitness_summary = GO_TR.finalize_case(p_id, self.session)
+
+                        if is_finished:
+                            with self.state_lock:
+                                self.active_cases.discard(p_id)
+                                self.finished_cases.add(p_id)
+                                meta = self.case_metadata.pop(p_id, {})
+
+                            self.broadcast_case_lifecycle(p_id, "completed", {
+                                "fitness": fitness_summary.get("fitness", 1.0) if fitness_summary else 1.0,
+                                "last_activity": activity,
+                                "recap": fitness_summary
+                            })
+                        else:
+                            self.broadcast_case_lifecycle(p_id, "progress", {
+                                "activity": activity,
+                                "score": round(self.anomaly_scores.get(p_id, 0.0), 2),
+                                "has_deviations": self.case_metadata.get(p_id, {}).get("has_deviations", False)
+                            })
         except KeyboardInterrupt:
             print("\nShutting down consumer...")
         except Exception as e:

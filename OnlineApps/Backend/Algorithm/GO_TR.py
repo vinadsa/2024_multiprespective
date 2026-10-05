@@ -106,32 +106,28 @@ def getCurrentMarking(p_id,session):
 # current_marking = getCurrentMarking(5)
 # current_marking
 
-def getFinalMarking(p_id,session):
-    q_finalMarking ='''
-            MATCH (p:Place {p_id: $p_id})
-            WHERE p.fm > 0
-            RETURN collect(p.name) AS finalMarking
-         '''
-    results = session.run(q_finalMarking, p_id=p_id)
-    print(f'End mark {results}')
+def getFinalMarking(p_id, session):
+    q_finalMarking = '''
+        MATCH (p:Place {p_id: $p_id, is_final: true})
+        RETURN collect(p.name) AS finalMarking
+    '''
+    results = session.run(q_finalMarking, p_id=str(p_id))
     for record in results:
-        for e in record:
-            return record[0]
-# current_marking = getCurrentMarking(5)
-# current_marking
-def consumeFinalMarking(p_id,session):
-    """
-    Consume all remaining tokens in the final marking places of this case (p_id).
-    This operation signals that the process instance has ended successfully.
-    """
+        return record.get("finalMarking", [])
+    return []
 
+def consumeFinalMarking(p_id, session):
+    """
+    Consume the token in the final marking place of this case (p_id).
+    This operation signals that the process instance has reached the sink place.
+    """
     q_consume = '''
-        MATCH (p:Place {p_id: $p_id})
+        MATCH (p:Place {p_id: $p_id, is_final: true})
         WHERE p.token > 0
-        SET p.token = 0
+        SET p.token = p.token - 1, p.c = p.c + 1
         RETURN collect(p.name) AS consumed_places
     '''
-    results = session.run(q_consume, p_id=p_id)
+    results = session.run(q_consume, p_id=str(p_id))
 
     consumed_places = []
     for record in results:
@@ -837,34 +833,32 @@ def recapPerFinalCase(p_id,session):
             collect(CASE WHEN pl.m > 0 THEN pl.name END) AS missing_places,
             sum(pl.token) AS remained,
             collect(CASE WHEN pl.token > 0 THEN pl.name END) AS remained_places,
-            collect(CASE WHEN pl.fm > 0 THEN pl.name END) AS final_marking_places
+            collect(CASE WHEN pl.is_final = true THEN pl.name END) AS final_marking_places
     """
-    result = session.run(query, p_id=p_id).single()
+    result = session.run(query, p_id=str(p_id)).single()
 
     return {
-        "consumed": result["consumed"] if result["consumed"] else 0,
-        "produced": result["produced"] if result["produced"] else 0,
-        "missing": result["missing"] if result["missing"] else 0,
-        "m_name": [x for x in result["missing_places"] if x is not None],
-        "remained": result["remained"] if result["remained"] else 0,
-        "r_name": [x for x in result["remained_places"] if x is not None],
-        "fm_name": [x for x in result["final_marking_places"] if x is not None]
+        "consumed": result["consumed"] if result and result["consumed"] else 0,
+        "produced": result["produced"] if result and result["produced"] else 0,
+        "missing": result["missing"] if result and result["missing"] else 0,
+        "m_name": [x for x in (result["missing_places"] if result else []) if x is not None],
+        "remained": result["remained"] if result and result["remained"] else 0,
+        "r_name": [x for x in (result["remained_places"] if result else []) if x is not None],
+        "fm_name": [x for x in (result["final_marking_places"] if result else []) if x is not None]
     }
 
-def recapEnabledTranLeft(p_id,session):
+def recapEnabledTranLeft(p_id, session):
     """
     Return list of enabled transitions left for process instance (p_id).
     A transition is enabled if *all* its input places contain at least 1 token.
     """
     query = """
-        MATCH (t:Transition)<-[:INPUT_TO]-(p:Place {p_id:$p_id})
+        MATCH (p:Place {p_id: $p_id})-[:Arc]->(t:Transition {p_id: $p_id})
         WITH t, collect(p.token) AS tokens, collect(p.name) AS places
-        // Enabled if none of its input places have zero tokens
         WHERE all(x IN tokens WHERE x > 0)
-        RETURN collect({transition: t.name, input_places: places}) AS enabled_transitions
+        RETURN collect({transition: t.name, label: t.label, input_places: places}) AS enabled_transitions
     """
-    result = session.run(query, p_id=p_id).single()
-    
+    result = session.run(query, p_id=str(p_id)).single()
     return result["enabled_transitions"] if result and result["enabled_transitions"] else []
 
 # Algoritma Utama Online Token Based Replay
@@ -1077,12 +1071,21 @@ def tokenBasedReplay(event_streams,trans_name,states,places,session):
 
     return activate_activities, activities_coming, unknownActivities
 
+def clean_case_in_db(p_id, session):
+    """
+    Removes any cloned nodes/relationships from previous runs of case p_id in Neo4j.
+    Guarantees a clean Petri Net slate for replaying this case.
+    """
+    q = "MATCH (n {p_id: $p_id, type: 'clone'}) DETACH DELETE n"
+    session.run(q, p_id=str(p_id))
+
 def initialize_case_in_db(p_id, session):
     """
     Creates the cloned graph model in Neo4j for a new process instance.
-    This replaces the 'if p_id not in id_list' block.
+    Cleans up any previous stale cloned graph first to avoid replay collisions.
     """
     print(f"Initializing new case in Neo4j: {p_id}")
+    clean_case_in_db(p_id, session)
     neo4j_func.createCloneFromModelRef(p_id, session)
     return {"status": "initialized", "case_id": p_id}
 
@@ -1195,14 +1198,40 @@ def finalize_case(p_id, session):
     missing = recap.get('missing', 0)
     remained = recap.get('remained', 0)
     
-    fitness = 0
+    fitness = 0.0
     if consumed > 0 and produced > 0:
         fitness = (0.5 * (1 - (missing / consumed))) + (0.5 * (1 - (remained / produced)))
     
-    recap['fitness'] = fitness
+    recap['fitness'] = round(fitness, 4)
     print(f"✅ Case FINISHED: {p_id}, Fitness: {fitness:.2f}")
     
     # You can also dump the case from Neo4j here if needed
     # neo4j_func.dumpFinishedProcess(p_id, session)
     
     return recap
+
+def is_case_finished(p_id, session):
+    """
+    Mathematically checks if process instance p_id has reached proper terminal marking.
+    In Workflow Nets (WF-nets):
+    1. A token has reached a sink place (is_final: true).
+    2. No transitions in the instance remain enabled.
+    """
+    q_sink = """
+    MATCH (sink:Place {p_id: $p_id, is_final: true})
+    WHERE sink.token > 0
+    RETURN count(sink) > 0 AS sink_reached
+    """
+    res_sink = session.run(q_sink, p_id=str(p_id)).single()
+    if not (res_sink and res_sink["sink_reached"]):
+        return False
+
+    q_enabled = """
+    MATCH (p:Place {p_id: $p_id})-[:Arc]->(t:Transition {p_id: $p_id})
+    WITH t, collect(p.token) AS tokens
+    WHERE all(tok IN tokens WHERE tok > 0)
+    RETURN count(t) AS enabled_count
+    """
+    res_enabled = session.run(q_enabled, p_id=str(p_id)).single()
+    enabled_count = res_enabled["enabled_count"] if res_enabled else 0
+    return enabled_count == 0

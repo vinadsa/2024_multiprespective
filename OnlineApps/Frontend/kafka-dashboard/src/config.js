@@ -23,11 +23,13 @@ export const THEME_STORAGE_KEY = 'theme';
 // Limits & timings
 export const MAX_STORED_ALERTS = 200;
 export const SYNC_PAGE_LIMIT = 100;
-export const SYNC_INTERVAL_MS = 30_000;
+export const SYNC_INTERVAL_MS = 10_000;
 export const RECONNECT_DELAY_MS = 5_000;
 export const PERSIST_DEBOUNCE_MS = 1_000;
 export const STATUS_MESSAGE_MS = 3_000;
 export const BOOTSTRAP_TIMEOUT_MS = 3_000;
 
-// WebSocket message types that carry an alert payload
+// WebSocket message types
 export const ALERT_MESSAGE_TYPES = new Set(['deviation_alert', 'critical_alert']);
+export const CASE_LIFECYCLE_TYPE = 'case_lifecycle';
+export const CONFIG_MESSAGE_TYPE = 'configured';

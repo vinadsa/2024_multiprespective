@@ -23,9 +23,14 @@ export function fetchConfiguration(apiUrl, signal) {
   return requestJson(`${apiUrl}/api/configuration`, { signal });
 }
 
-/** GET /api/status — `{ is_configured, mode, is_running, active_cases, total_alerts, ... }`. */
+/** GET /api/status — `{ is_configured, mode, is_running, active_cases, active_cases_list, total_alerts, ... }`. */
 export function fetchStatus(apiUrl, signal) {
   return requestJson(`${apiUrl}/api/status`, { signal });
+}
+
+/** GET /api/cases/active — `{ active_cases_count, cases }`. */
+export function fetchActiveCases(apiUrl, signal) {
+  return requestJson(`${apiUrl}/api/cases/active`, { signal });
 }
 
 /**
