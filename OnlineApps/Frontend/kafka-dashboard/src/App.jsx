@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import ConfigForm from './components/ConfigForm';
 import HeaderBar from './components/HeaderBar';
+import ModelView from './components/ModelView';
 import MonitorView from './components/MonitorView';
 import Sidebar from './components/Sidebar';
 import { BOOTSTRAP_TIMEOUT_MS, DEFAULT_CONFIG } from './config';
@@ -19,12 +20,14 @@ const getInitialConfig = () => ({ ...DEFAULT_CONFIG, ...loadStoredConfig() });
 function MonitoringWorkspace({ config, onReconfigure, theme, onToggleTheme }) {
   const [activeTab, setActiveTab] = useState('monitor');
   const [isSyncing, setIsSyncing] = useState(false);
+  const [selectedCaseId, setSelectedCaseId] = useState(null);
   const configFormRef = useRef(null);
 
   const {
     alerts,
     stats,
     activeCasesList,
+    latestLifecycleEvent,
     connectionStatus,
     statusMessage,
     syncNow,
@@ -39,6 +42,11 @@ function MonitoringWorkspace({ config, onReconfigure, theme, onToggleTheme }) {
       setTimeout(() => setIsSyncing(false), 500);
     }
   }, [syncNow]);
+
+  const handleInspectCase = useCallback((caseId) => {
+    setSelectedCaseId(caseId);
+    setActiveTab('model');
+  }, []);
 
   return (
     <div className="app-shell">
@@ -63,16 +71,30 @@ function MonitoringWorkspace({ config, onReconfigure, theme, onToggleTheme }) {
           onToggleTheme={onToggleTheme}
         />
 
-        <div className="app-content-scroll">
-          {activeTab === 'monitor' ? (
+        <div className={`app-content-scroll ${activeTab === 'model' ? 'app-content-scroll--canvas' : ''}`}>
+          {activeTab === 'monitor' && (
             <MonitorView
               alerts={alerts}
               stats={stats}
               activeCasesList={activeCasesList}
               statusMessage={statusMessage}
               clearAlerts={clearAlerts}
+              onInspectCase={handleInspectCase}
             />
-          ) : (
+          )}
+
+          {activeTab === 'model' && (
+            <ModelView
+              apiUrl={config.apiUrl}
+              theme={theme}
+              selectedCaseId={selectedCaseId}
+              onSelectCase={setSelectedCaseId}
+              activeCasesList={activeCasesList}
+              latestLifecycleEvent={latestLifecycleEvent}
+            />
+          )}
+
+          {activeTab === 'settings' && (
             <div className="settings-panel-container">
               <ConfigForm
                 ref={configFormRef}

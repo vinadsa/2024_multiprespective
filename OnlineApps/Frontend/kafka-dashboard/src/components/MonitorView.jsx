@@ -11,6 +11,7 @@ export default function MonitorView({
   activeCasesList = [],
   statusMessage = null,
   clearAlerts,
+  onInspectCase = null,
 }) {
   const [isTrackerOpen, setIsTrackerOpen] = useState(true);
   const [selectedCaseId, setSelectedCaseId] = useState(null);
@@ -41,6 +42,7 @@ export default function MonitorView({
         onToggleExpand={() => setIsTrackerOpen((prev) => !prev)}
         selectedCaseId={selectedCaseId}
         onSelectCase={setSelectedCaseId}
+        onInspectCase={onInspectCase}
       />
 
       {/* Temporary toast status message if present */}
@@ -57,6 +59,8 @@ export default function MonitorView({
         onExport={() => exportAlertsToCsv(displayedAlerts)}
         selectedCaseId={selectedCaseId}
         onResetFilter={() => setSelectedCaseId(null)}
+        onInspectCase={onInspectCase}
+        onSelectCase={setSelectedCaseId}
       />
 
       {/* Cupertino Native Confirmation Modal */}

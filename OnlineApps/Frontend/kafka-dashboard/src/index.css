@@ -52,6 +52,7 @@
   --system-indigo: #5856d6;
   --system-purple: #af52de;
   --system-teal: #30b0c7;
+  --system-accent: var(--system-blue);
   --system-fill: rgba(120, 120, 128, 0.12);
   --system-border: rgba(0, 0, 0, 0.08);
 
@@ -134,6 +135,7 @@
   --system-orange: #ff9f0a;
   --system-red: #ff453a;
   --system-gray: #636366;
+  --system-accent: var(--system-blue);
   --system-fill: rgba(120, 120, 128, 0.24);
   --system-border: rgba(255, 255, 255, 0.08);
 
@@ -238,7 +240,8 @@ code {
   background-clip: padding-box;
 }
 
-.visually-hidden {
+.visually-hidden,
+.sr-only {
   position: absolute;
   width: 1px;
   height: 1px;

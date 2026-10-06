@@ -34,6 +34,7 @@ export function useAlertStream({ apiUrl, wsUrl }) {
   const [connectionStatus, setConnectionStatus] = useState('connecting');
   const [activeCases, setActiveCases] = useState(0);
   const [activeCasesList, setActiveCasesList] = useState([]);
+  const [latestLifecycleEvent, setLatestLifecycleEvent] = useState(null);
   const [statusMessage, setStatusMessage] = useState(null);
 
   // Latest alerts for async callbacks (avoids stale closures).
@@ -146,6 +147,7 @@ export function useAlertStream({ apiUrl, wsUrl }) {
         if (ALERT_MESSAGE_TYPES.has(data.type)) {
           ingest([data]);
         } else if (data.type === CASE_LIFECYCLE_TYPE) {
+          setLatestLifecycleEvent(data);
           if (typeof data.active_cases_count === 'number') {
             setActiveCases(data.active_cases_count);
           }
@@ -215,5 +217,5 @@ export function useAlertStream({ apiUrl, wsUrl }) {
     };
   }, [alerts, activeCases]);
 
-  return { alerts, stats, activeCasesList, connectionStatus, statusMessage, syncNow, clearAlerts };
+  return { alerts, stats, activeCasesList, latestLifecycleEvent, connectionStatus, statusMessage, syncNow, clearAlerts };
 }

@@ -43,3 +43,14 @@ export function fetchRecentAlerts(apiUrl, { limit, since }, signal) {
   if (since) params.set('since_timestamp', since);
   return requestJson(`${apiUrl}/api/alerts/recent?${params}`, { signal });
 }
+
+/** GET /api/model/master — `{ status: 'success', data: { nodes, edges, stats } }`. */
+export function fetchMasterModel(apiUrl, signal) {
+  return requestJson(`${apiUrl}/api/model/master`, { signal });
+}
+
+/** GET /api/cases/{caseId}/marking — `{ status: 'success', case_id, data: { marking, enabled_transitions, total_active_tokens, total_missing_tokens, is_active, ... } }`. */
+export function fetchCaseMarking(apiUrl, caseId, signal) {
+  return requestJson(`${apiUrl}/api/cases/${encodeURIComponent(caseId)}/marking`, { signal });
+}
+

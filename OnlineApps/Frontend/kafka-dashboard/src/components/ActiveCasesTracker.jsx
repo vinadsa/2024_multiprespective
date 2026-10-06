@@ -1,4 +1,12 @@
 import { useEffect, useState } from 'react';
+import {
+  Activity,
+  AlertTriangle,
+  ArrowUpRight,
+  CheckCircle2,
+  Clock,
+  Filter,
+} from 'lucide-react';
 
 function LiveTimer({ startedAt }) {
   const [seconds, setSeconds] = useState(() => {
@@ -20,7 +28,8 @@ function LiveTimer({ startedAt }) {
   const secs = seconds % 60;
   return (
     <span className="live-timer" title={`Started: ${startedAt}`}>
-      ⏱️ {mins > 0 ? `${mins}m ${secs}s` : `${secs}s`}
+      <Clock size={11} aria-hidden="true" />
+      <span>{mins > 0 ? `${mins}m ${secs}s` : `${secs}s`}</span>
     </span>
   );
 }
@@ -31,6 +40,7 @@ export default function ActiveCasesTracker({
   onToggleExpand,
   selectedCaseId = null,
   onSelectCase,
+  onInspectCase,
 }) {
   return (
     <section className="card-panel active-cases-panel" aria-label="Live Active Process Instances">
@@ -74,38 +84,73 @@ export default function ActiveCasesTracker({
                       c.has_deviations ? 'active-case-card--deviating' : 'active-case-card--conforming'
                     } ${isSelected ? 'active-case-card--selected' : ''}`}
                   >
+                    {/* 1. Header: Case ID with Status Dot and Timer */}
                     <div className="active-case-card__header">
-                      <span className="active-case-card__id">Case #{c.case_id}</span>
+                      <div className="active-case-card__id-group">
+                        <span
+                          className={`active-case-card__status-dot ${
+                            c.has_deviations
+                              ? 'active-case-card__status-dot--anomaly'
+                              : 'active-case-card__status-dot--conforming'
+                          }`}
+                          aria-hidden="true"
+                        />
+                        <span className="active-case-card__id">Case #{c.case_id}</span>
+                      </div>
                       <LiveTimer startedAt={c.started_at} />
                     </div>
 
+                    {/* 2. Latest Activity Chip */}
                     <div className="active-case-card__activity">
-                      <span className="active-case-card__activity-label">Aktivitas Terkini:</span>
-                      <span className="active-case-card__activity-name" title={c.last_activity}>
-                        {c.last_activity}
-                      </span>
+                      <span className="active-case-card__activity-label">Aktivitas Terkini</span>
+                      <div className="active-case-card__activity-chip" title={c.last_activity}>
+                        <Activity size={13} className="activity-chip-icon" aria-hidden="true" />
+                        <span className="activity-chip-text">{c.last_activity}</span>
+                      </div>
                     </div>
 
-                    <div className="active-case-card__footer">
+                    {/* 3. Meta Row: Events count and SOP status */}
+                    <div className="active-case-card__meta-row">
                       <span className="active-case-card__events">
                         {c.event_count ?? 1} event{(c.event_count ?? 1) === 1 ? '' : 's'}
                       </span>
                       {c.has_deviations ? (
                         <span className="active-case-card__badge active-case-card__badge--anomaly">
-                          ⚠️ Anomali (+{c.anomaly_score?.toFixed(1)})
+                          <AlertTriangle size={11} aria-hidden="true" />
+                          <span>Anomali (+{c.anomaly_score?.toFixed(1)})</span>
                         </span>
                       ) : (
                         <span className="active-case-card__badge active-case-card__badge--conforming">
-                          ✅ Sesuai SOP
+                          <CheckCircle2 size={11} aria-hidden="true" />
+                          <span>Sesuai SOP</span>
                         </span>
+                      )}
+                    </div>
+
+                    {/* 4. Dedicated Actions Toolbar */}
+                    <div className="active-case-card__actions">
+                      {onInspectCase && (
+                        <button
+                          type="button"
+                          className="btn-case-action btn-case-action--inspect"
+                          onClick={() => onInspectCase(c.case_id)}
+                          title="Inspeksi posisi token dan alur proses kasus ini di graf Petri Net"
+                        >
+                          <ArrowUpRight size={13} aria-hidden="true" />
+                          <span>Inspect</span>
+                        </button>
                       )}
                       {onSelectCase && (
                         <button
                           type="button"
-                          className={`btn-filter-case ${isSelected ? 'btn-filter-case--active' : ''}`}
+                          className={`btn-case-action btn-case-action--filter ${
+                            isSelected ? 'btn-case-action--active' : ''
+                          }`}
                           onClick={() => onSelectCase(isSelected ? null : c.case_id)}
+                          title={isSelected ? 'Reset filter alert' : 'Filter alert untuk kasus ini'}
                         >
-                          {isSelected ? 'Reset Filter' : 'Filter Alert'}
+                          <Filter size={12} aria-hidden="true" />
+                          <span>{isSelected ? 'Reset' : 'Filter Alert'}</span>
                         </button>
                       )}
                     </div>

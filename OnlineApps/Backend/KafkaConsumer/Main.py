@@ -379,7 +379,11 @@ class GOTRKafkaConsumer:
                         consumer_instance.broadcast_case_lifecycle(p_id, "timeout", {
                             "fitness": fitness_summary.get("fitness", 0.0),
                             "recap": fitness_summary,
-                            "reason": f"inactivity_timeout_{int(timeout_sec)}s"
+                            "total_missing_tokens": fitness_summary.get("missing", 0) if fitness_summary else 0,
+                            "total_active_tokens": 0,
+                            "reason": f"inactivity_timeout_{int(timeout_sec)}s",
+                            "current_marking": [],
+                            "enabled_transitions": []
                         })
                 except Exception as e:
                     print(f"Error checking inactivity timeouts: {e}")
@@ -483,6 +487,188 @@ class GOTRKafkaConsumer:
                 "active_connections": len(manager.active_connections)
             }
 
+        @app.get("/api/model/master")
+        async def get_master_model():
+            """Retrieve the SOP Master Petri Net model (Places, Transitions, and Arcs) from Neo4j"""
+            try:
+                driver = consumer_instance.driver
+                created_driver = False
+                if not driver:
+                    driver = GraphDatabase.driver(
+                        uri=consumer_instance.neo4j_config['uri'],
+                        auth=(consumer_instance.neo4j_config['user'], consumer_instance.neo4j_config['password'])
+                    )
+                    created_driver = True
+
+                try:
+                    with driver.session() as session:
+                        places_res = session.run("""
+                            MATCH (p:Place {type: 'master'})
+                            RETURN p.name AS name, p.label AS label, p.im AS im, p.is_final AS is_final, p.token AS token
+                        """).data()
+
+                        transitions_res = session.run("""
+                            MATCH (t:Transition {type: 'master'})
+                            RETURN t.name AS name, t.label AS label, t.req_role AS req_role, t.req_team AS req_team, t.team_var AS team_var, t.writes AS writes
+                        """).data()
+
+                        arcs_res = session.run("""
+                            MATCH (s {type: 'master'})-[r:Arc {type: 'master'}]->(tg {type: 'master'})
+                            RETURN r.name AS name, s.name AS source, labels(s)[0] AS source_type, tg.name AS target, labels(tg)[0] AS target_type
+                        """).data()
+                finally:
+                    if created_driver:
+                        driver.close()
+
+                nodes = []
+                for p in places_res:
+                    is_source = bool(p.get("im") or p.get("name") == "source")
+                    is_sink = bool(p.get("is_final") or p.get("name") == "sink")
+                    nodes.append({
+                        "id": p["name"],
+                        "name": p["name"],
+                        "label": p["name"],
+                        "type": "place",
+                        "is_source": is_source,
+                        "is_sink": is_sink,
+                        "token": p.get("token") or 0,
+                    })
+
+                for t in transitions_res:
+                    nodes.append({
+                        "id": t["name"],
+                        "name": t["name"],
+                        "label": t.get("label") or t["name"],
+                        "type": "transition",
+                        "is_source": False,
+                        "is_sink": False,
+                        "role": t.get("req_role"),
+                        "team": t.get("req_team"),
+                        "team_var": t.get("team_var"),
+                    })
+
+                edges = []
+                for a in arcs_res:
+                    edges.append({
+                        "id": a.get("name") or f"{a['source']}_{a['target']}",
+                        "source": a["source"],
+                        "target": a["target"],
+                        "source_type": a["source_type"].lower(),
+                        "target_type": a["target_type"].lower(),
+                    })
+
+                return {
+                    "status": "success",
+                    "data": {
+                        "nodes": nodes,
+                        "edges": edges,
+                        "stats": {
+                            "places_count": len(places_res),
+                            "transitions_count": len(transitions_res),
+                            "arcs_count": len(arcs_res)
+                        }
+                    }
+                }
+            except Exception as e:
+                return {
+                    "status": "error",
+                    "message": f"Failed to fetch master model: {str(e)}"
+                }
+
+        @app.get("/api/cases/{case_id}/marking")
+        async def get_case_marking(case_id: str):
+            """Retrieve current Petri Net marking, token stats, and enabled transitions for a specific case."""
+            try:
+                driver = consumer_instance.driver
+                created_driver = False
+                if not driver:
+                    driver = GraphDatabase.driver(
+                        uri=consumer_instance.neo4j_config['uri'],
+                        auth=(consumer_instance.neo4j_config['user'], consumer_instance.neo4j_config['password'])
+                    )
+                    created_driver = True
+
+                try:
+                    with driver.session() as session:
+                        places_res = session.run("""
+                            MATCH (p:Place)
+                            WHERE p.p_id = $p_id OR toString(p.p_id) = $p_id
+                            RETURN p.name AS name, p.token AS token, p.m AS missing, p.c AS consumed, p.p AS produced, p.is_final AS is_final
+                        """, p_id=str(case_id)).data()
+
+                        enabled_res = session.run("""
+                            MATCH (p:Place)-[:Arc]->(t:Transition)
+                            WHERE (p.p_id = $p_id OR toString(p.p_id) = $p_id) AND t.p_id = p.p_id
+                            WITH t, collect(p.token) AS tokens
+                            WHERE all(tok IN tokens WHERE tok > 0)
+                            RETURN t.name AS name, t.label AS label
+                        """, p_id=str(case_id)).data()
+                finally:
+                    if created_driver:
+                        driver.close()
+
+                if not places_res:
+                    return {
+                        "status": "error",
+                        "message": f"Case {case_id} not found or no clone graph exists in Neo4j",
+                        "case_id": case_id
+                    }
+
+                marking_map = {}
+                total_tokens = 0
+                total_missing = 0
+                total_c = 0
+                total_p = 0
+                for p in places_res:
+                    token = p.get("token") or 0
+                    missing = p.get("missing") or 0
+                    c_val = p.get("consumed") or 0
+                    p_val = p.get("produced") or 0
+                    total_tokens += token
+                    total_missing += missing
+                    total_c += c_val
+                    total_p += p_val
+                    marking_map[p["name"]] = {
+                        "token": token,
+                        "missing": missing,
+                        "consumed": c_val,
+                        "produced": p_val,
+                        "is_final": bool(p.get("is_final"))
+                    }
+
+                calc_fitness = 1.0
+                if total_c > 0 and total_p > 0:
+                    calc_fitness = round((0.5 * (1 - (total_missing / total_c))) + (0.5 * (1 - (total_tokens / total_p))), 4)
+
+                enabled_transitions = [t["name"] for t in enabled_res]
+
+                with consumer_instance.state_lock:
+                    is_active = str(case_id) in consumer_instance.active_cases
+                    meta = consumer_instance.case_metadata.get(str(case_id), {})
+                    anomaly_score = consumer_instance.anomaly_scores.get(str(case_id), 0.0)
+
+                return {
+                    "status": "success",
+                    "case_id": case_id,
+                    "data": {
+                        "marking": marking_map,
+                        "enabled_transitions": enabled_transitions,
+                        "total_active_tokens": total_tokens,
+                        "total_missing_tokens": total_missing,
+                        "fitness": calc_fitness,
+                        "is_active": is_active,
+                        "last_activity": meta.get("last_activity"),
+                        "anomaly_score": round(anomaly_score, 2),
+                        "has_deviations": meta.get("has_deviations", total_missing > 0)
+                    }
+                }
+            except Exception as e:
+                return {
+                    "status": "error",
+                    "message": f"Failed to fetch marking for case {case_id}: {str(e)}"
+                }
+
+
         @app.get("/health")
         async def health_check():
             return {
@@ -529,6 +715,7 @@ class GOTRKafkaConsumer:
                     "event_count": meta.get("event_count", 0),
                     "anomaly_score": round(self.anomaly_scores.get(p_id, 0.0), 2),
                     "has_deviations": meta.get("has_deviations", False),
+                    "missing_tokens": meta.get("missing_tokens", 0),
                     "duration_seconds": duration_sec,
                     "idle_seconds": max(0, int(now - last_event_time))
                 })
@@ -1043,7 +1230,12 @@ class GOTRKafkaConsumer:
                                 GO_TR.initialize_case_in_db(p_id, self.session)
                             self.broadcast_case_lifecycle(p_id, "started", {
                                 "activity": activity,
-                                "started_at": now_iso
+                                "started_at": now_iso,
+                                "current_marking": ["source"],
+                                "marking": {"source": {"token": 1, "missing": 0, "consumed": 0, "produced": 1, "is_final": False}},
+                                "total_active_tokens": 1,
+                                "total_missing_tokens": 0,
+                                "enabled_transitions": []
                             })
 
                         # ✅ STEP 5: Process event (Token Replay)
@@ -1082,16 +1274,83 @@ class GOTRKafkaConsumer:
                                 self.finished_cases.add(p_id)
                                 meta = self.case_metadata.pop(p_id, {})
 
+                            total_miss = fitness_summary.get("missing", 0) if fitness_summary else 0
                             self.broadcast_case_lifecycle(p_id, "completed", {
                                 "fitness": fitness_summary.get("fitness", 1.0) if fitness_summary else 1.0,
                                 "last_activity": activity,
-                                "recap": fitness_summary
+                                "recap": fitness_summary,
+                                "total_missing_tokens": total_miss,
+                                "total_active_tokens": 0,
+                                "current_marking": ["sink"],
+                                "enabled_transitions": []
                             })
                         else:
+                            current_marking = []
+                            enabled_transitions = []
+                            marking_map = {}
+                            total_active = 0
+                            total_missing = 0
+                            current_fitness = None
+                            try:
+                                with self.neo4j_lock:
+                                    q_places = """
+                                        MATCH (p:Place)
+                                        WHERE p.p_id = $p_id OR toString(p.p_id) = $p_id
+                                        RETURN p.name AS name, p.token AS token, p.m AS missing, p.c AS consumed, p.p AS produced, p.is_final AS is_final
+                                    """
+                                    places_res = self.session.run(q_places, p_id=str(p_id)).data()
+                                    
+                                    total_c = 0
+                                    total_p = 0
+                                    for p in places_res:
+                                        p_name = p.get("name")
+                                        tok = p.get("token") or 0
+                                        miss = p.get("missing") or 0
+                                        c_val = p.get("consumed") or 0
+                                        p_val = p.get("produced") or 0
+                                        total_active += tok
+                                        total_missing += miss
+                                        total_c += c_val
+                                        total_p += p_val
+                                        marking_map[p_name] = {
+                                            "token": tok,
+                                            "missing": miss,
+                                            "consumed": c_val,
+                                            "produced": p_val,
+                                            "is_final": bool(p.get("is_final"))
+                                        }
+
+                                    current_marking = [k for k, v in marking_map.items() if v["token"] > 0]
+
+                                    if total_c > 0 and total_p > 0:
+                                        current_fitness = round((0.5 * (1 - (total_missing / total_c))) + (0.5 * (1 - (total_active / total_p))), 4)
+
+                                    q_enabled = """
+                                        MATCH (p:Place)-[:Arc]->(t:Transition)
+                                        WHERE (p.p_id = $p_id OR toString(p.p_id) = $p_id) AND t.p_id = p.p_id
+                                        WITH t, collect(p.token) AS tokens
+                                        WHERE all(tok IN tokens WHERE tok > 0)
+                                        RETURN t.name AS name
+                                    """
+                                    res_en = self.session.run(q_enabled, p_id=str(p_id)).data()
+                                    enabled_transitions = [r["name"] for r in res_en]
+                            except Exception as e:
+                                print(f"Error fetching marking/enabled for case {p_id}: {e}")
+
+                            with self.state_lock:
+                                if p_id in self.case_metadata:
+                                    self.case_metadata[p_id]["missing_tokens"] = total_missing
+
                             self.broadcast_case_lifecycle(p_id, "progress", {
                                 "activity": activity,
                                 "score": round(self.anomaly_scores.get(p_id, 0.0), 2),
-                                "has_deviations": self.case_metadata.get(p_id, {}).get("has_deviations", False)
+                                "has_deviations": self.case_metadata.get(p_id, {}).get("has_deviations", total_missing > 0),
+                                "current_marking": current_marking,
+                                "marking": marking_map,
+                                "total_active_tokens": total_active,
+                                "total_missing_tokens": total_missing,
+                                "enabled_transitions": enabled_transitions,
+                                "fitness": current_fitness
                             })
         except KeyboardInterrupt:
             print("\nShutting down consumer...")

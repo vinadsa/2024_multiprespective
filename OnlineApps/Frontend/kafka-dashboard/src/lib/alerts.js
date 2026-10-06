@@ -25,7 +25,11 @@ export function toTime(timestamp) {
 
 export function formatTimestamp(timestamp) {
   const time = Date.parse(timestamp);
-  return Number.isNaN(time) ? String(timestamp ?? '') : new Date(time).toLocaleString();
+  if (Number.isNaN(time)) return String(timestamp ?? '');
+  const d = new Date(time);
+  const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const dateStr = d.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+  return `${timeStr} • ${dateStr}`;
 }
 
 /** Returns whichever timestamp string is newer (keeps the original server format). */

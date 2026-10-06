@@ -1,4 +1,4 @@
-import { Activity, RotateCw, SlidersHorizontal } from 'lucide-react';
+import { Activity, RotateCw, SlidersHorizontal, Workflow } from 'lucide-react';
 import { MODE_LABELS } from '../config';
 
 const STATUS_CONFIG = {
@@ -51,6 +51,17 @@ export default function Sidebar({
           </span>
           <span className="nav-item-text">Real-time Monitor</span>
           <span className="nav-live-dot" title="Live stream active" aria-hidden="true" />
+        </button>
+
+        <button
+          type="button"
+          className={`sidebar-nav-item ${currentTab === 'model' ? 'sidebar-nav-item--active' : ''}`}
+          onClick={() => onSelectTab('model')}
+        >
+          <span className="nav-item-icon">
+            <Workflow size={18} />
+          </span>
+          <span className="nav-item-text">Process Model</span>
         </button>
 
         <button

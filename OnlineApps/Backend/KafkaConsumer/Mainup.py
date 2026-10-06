@@ -382,6 +382,177 @@ class GOTRKafkaConsumer:
                 "active_connections": len(manager.active_connections)
             }
 
+        @app.get("/api/model/master")
+        async def get_master_model():
+            """Retrieve the SOP Master Petri Net model (Places, Transitions, and Arcs) from Neo4j"""
+            try:
+                driver = consumer_instance.driver
+                created_driver = False
+                if not driver:
+                    driver = GraphDatabase.driver(
+                        uri=consumer_instance.neo4j_config['uri'],
+                        auth=(consumer_instance.neo4j_config['user'], consumer_instance.neo4j_config['password'])
+                    )
+                    created_driver = True
+
+                try:
+                    with driver.session() as session:
+                        places_res = session.run("""
+                            MATCH (p:Place {type: 'master'})
+                            RETURN p.name AS name, p.label AS label, p.im AS im, p.is_final AS is_final, p.token AS token
+                        """).data()
+
+                        transitions_res = session.run("""
+                            MATCH (t:Transition {type: 'master'})
+                            RETURN t.name AS name, t.label AS label, t.req_role AS req_role, t.req_team AS req_team, t.team_var AS team_var, t.writes AS writes
+                        """).data()
+
+                        arcs_res = session.run("""
+                            MATCH (s {type: 'master'})-[r:Arc {type: 'master'}]->(tg {type: 'master'})
+                            RETURN r.name AS name, s.name AS source, labels(s)[0] AS source_type, tg.name AS target, labels(tg)[0] AS target_type
+                        """).data()
+                finally:
+                    if created_driver:
+                        driver.close()
+
+                nodes = []
+                for p in places_res:
+                    is_source = bool(p.get("im") or p.get("name") == "source")
+                    is_sink = bool(p.get("is_final") or p.get("name") == "sink")
+                    nodes.append({
+                        "id": p["name"],
+                        "name": p["name"],
+                        "label": p["name"],
+                        "type": "place",
+                        "is_source": is_source,
+                        "is_sink": is_sink,
+                        "token": p.get("token") or 0,
+                    })
+
+                for t in transitions_res:
+                    nodes.append({
+                        "id": t["name"],
+                        "name": t["name"],
+                        "label": t.get("label") or t["name"],
+                        "type": "transition",
+                        "is_source": False,
+                        "is_sink": False,
+                        "role": t.get("req_role"),
+                        "team": t.get("req_team"),
+                        "team_var": t.get("team_var"),
+                    })
+
+                edges = []
+                for a in arcs_res:
+                    edges.append({
+                        "id": a.get("name") or f"{a['source']}_{a['target']}",
+                        "source": a["source"],
+                        "target": a["target"],
+                        "source_type": a["source_type"].lower(),
+                        "target_type": a["target_type"].lower(),
+                    })
+
+                return {
+                    "status": "success",
+                    "data": {
+                        "nodes": nodes,
+                        "edges": edges,
+                        "stats": {
+                            "places_count": len(places_res),
+                            "transitions_count": len(transitions_res),
+                            "arcs_count": len(arcs_res)
+                        }
+                    }
+                }
+            except Exception as e:
+                return {
+                    "status": "error",
+                    "message": f"Failed to fetch master model: {str(e)}"
+                }
+
+        @app.get("/api/cases/{case_id}/marking")
+        async def get_case_marking(case_id: str):
+            """Retrieve current Petri Net marking, token stats, and enabled transitions for a specific case."""
+            try:
+                driver = consumer_instance.driver
+                created_driver = False
+                if not driver:
+                    driver = GraphDatabase.driver(
+                        uri=consumer_instance.neo4j_config['uri'],
+                        auth=(consumer_instance.neo4j_config['user'], consumer_instance.neo4j_config['password'])
+                    )
+                    created_driver = True
+
+                try:
+                    with driver.session() as session:
+                        places_res = session.run("""
+                            MATCH (p:Place)
+                            WHERE p.p_id = $p_id OR toString(p.p_id) = $p_id
+                            RETURN p.name AS name, p.token AS token, p.m AS missing, p.c AS consumed, p.p AS produced, p.is_final AS is_final
+                        """, p_id=str(case_id)).data()
+
+                        enabled_res = session.run("""
+                            MATCH (p:Place)-[:Arc]->(t:Transition)
+                            WHERE (p.p_id = $p_id OR toString(p.p_id) = $p_id) AND t.p_id = p.p_id
+                            WITH t, collect(p.token) AS tokens
+                            WHERE all(tok IN tokens WHERE tok > 0)
+                            RETURN t.name AS name, t.label AS label
+                        """, p_id=str(case_id)).data()
+                finally:
+                    if created_driver:
+                        driver.close()
+
+                if not places_res:
+                    return {
+                        "status": "error",
+                        "message": f"Case {case_id} not found or no clone graph exists in Neo4j",
+                        "case_id": case_id
+                    }
+
+                marking_map = {}
+                total_tokens = 0
+                total_missing = 0
+                for p in places_res:
+                    token = p.get("token") or 0
+                    missing = p.get("missing") or 0
+                    total_tokens += token
+                    total_missing += missing
+                    marking_map[p["name"]] = {
+                        "token": token,
+                        "missing": missing,
+                        "consumed": p.get("consumed") or 0,
+                        "produced": p.get("produced") or 0,
+                        "is_final": bool(p.get("is_final"))
+                    }
+
+                enabled_transitions = [t["name"] for t in enabled_res]
+
+                with consumer_instance.state_lock:
+                    is_active = str(case_id) in consumer_instance.active_cases
+                    meta = consumer_instance.case_metadata.get(str(case_id), {})
+                    anomaly_score = consumer_instance.anomaly_scores.get(str(case_id), 0.0)
+
+                return {
+                    "status": "success",
+                    "case_id": case_id,
+                    "data": {
+                        "marking": marking_map,
+                        "enabled_transitions": enabled_transitions,
+                        "total_active_tokens": total_tokens,
+                        "total_missing_tokens": total_missing,
+                        "is_active": is_active,
+                        "last_activity": meta.get("last_activity"),
+                        "anomaly_score": round(anomaly_score, 2),
+                        "has_deviations": meta.get("has_deviations", False)
+                    }
+                }
+            except Exception as e:
+                return {
+                    "status": "error",
+                    "message": f"Failed to fetch marking for case {case_id}: {str(e)}"
+                }
+
+
         @app.get("/health")
         async def health_check():
             return {

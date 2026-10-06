@@ -3,18 +3,22 @@ import { Moon, RotateCcw, Settings, Sun } from 'lucide-react';
 export default function HeaderBar({
   currentTab = 'monitor',
   title = 'GO-TR Real-time Deviation Monitor',
-  subtitle = null,
   onReconfigure,
   onRevertDefaults,
   theme = 'light',
   onToggleTheme,
 }) {
   const isSettings = currentTab === 'settings';
+  const isModel = currentTab === 'model';
+
+  let displayTitle = title;
+  if (isSettings) displayTitle = 'Engine Settings';
+  else if (isModel) displayTitle = 'Master Process Model (Petri Net)';
 
   return (
     <header className="header-bar">
       <div className="header-bar__title-group">
-        <h1 className="header-bar__title">{isSettings ? 'Engine Settings' : title}</h1>
+        <h1 className="header-bar__title">{displayTitle}</h1>
       </div>
 
       <div className="header-bar__actions">
