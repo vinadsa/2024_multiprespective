@@ -8,6 +8,15 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, asdict
 from pm4py.objects.log.importer.xes import importer as xes_importer
 import logging
+import sys
+from pathlib import Path
+
+# Ensure Backend root is in sys.path
+backend_dir = Path(__file__).resolve().parent.parent
+if str(backend_dir) not in sys.path:
+    sys.path.insert(0, str(backend_dir))
+
+from config import settings
 
 # Setup structured logging
 logging.basicConfig(
@@ -124,12 +133,18 @@ class XESEventProducer:
                             if key not in ['concept:name', 'org:resource', 'lifecycle:transition', 'time:timestamp']:
                                 event_attrs[key] = str(value)
                         
+                        resource = None
+                        for r_k in settings.xes_resource_keys:
+                            if event.get(r_k):
+                                resource = str(event.get(r_k))
+                                break
+
                         normalized_event = Event(
                             event_id=str(uuid.uuid4()),
                             trace_id=trace_id,
-                            activity=event.get("concept:name", "unknown"),
+                            activity=event.get(settings.xes_activity_key, "unknown"),
                             lifecycle=event.get("lifecycle:transition"),
-                            resource=event.get("resource"),
+                            resource=resource,
                             timestamp=event.get("time:timestamp", datetime.now(timezone.utc)),
                             event_index=idx,
                             case_attrs=case_attrs,
@@ -390,23 +405,35 @@ class XESEventProducer:
 
 def main():
     """Main function demonstrating usage"""
-    # Configuration
-    webhook_url = "http://localhost:8100/events"  # Kafka producer webhook endpoint
+    webhook_url = settings.producer_webhook_url  # Kafka producer webhook endpoint
     
     config = {
         'watermark_interval_events': 5000,
-        'fixed_interval_ms': 5000
+        'fixed_interval_ms': settings.streamer_fixed_interval_ms
     }
     
     # Create event producer
     producer = XESEventProducer(webhook_url, config)
     
+    # Resolve file paths
+    resolved_paths = []
+    for f in settings.streamer_xes_files:
+        p = Path(f)
+        if p.is_file():
+            resolved_paths.append(str(p))
+        elif (Path(__file__).parent / f).is_file():
+            resolved_paths.append(str(Path(__file__).parent / f))
+        elif (backend_dir / f).is_file():
+            resolved_paths.append(str(backend_dir / f))
+        else:
+            resolved_paths.append(f)
+
     # Start production
     try:
         producer.start_production(
-            file_paths=["output_logv2test2.xes"],
-            mode="fixed_interval",  # Options: exact, scaled, fixed_interval, burst
-            speed=1      # 4x faster than original
+            file_paths=resolved_paths,
+            mode=settings.streamer_mode,  # Options: exact, scaled, fixed_interval, burst
+            speed=settings.streamer_speed
         )
     except KeyboardInterrupt:
         logger.info("Interrupted by user")

@@ -14,3 +14,8 @@ __pycache__/
 *$py.class
 # Runtime state: active Kafka consumer group for GO-TR continue/reset
 .kafka_group_state.json
+
+# Environment files
+.env
+.env.*
+!.env.example

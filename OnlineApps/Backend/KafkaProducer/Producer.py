@@ -12,6 +12,15 @@ from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from fastapi.responses import JSONResponse
 import uvicorn
 import logging
+import sys
+from pathlib import Path
+
+# Ensure Backend root is in sys.path
+backend_dir = Path(__file__).resolve().parent.parent
+if str(backend_dir) not in sys.path:
+    sys.path.insert(0, str(backend_dir))
+
+from config import settings
 
 # Setup structured logging
 logging.basicConfig(
@@ -34,9 +43,9 @@ class KafkaWebhookProducer:
         
         # Topics configuration
         self.topics = {
-            'events': 'pm.test.events.raw',
-            'watermark': 'pm.test.events.watermark',
-            'dlq': 'pm.test.events.dlq'
+            'events': settings.kafka_topic_events,
+            'watermark': settings.kafka_topic_watermark,
+            'dlq': settings.kafka_topic_dlq
         }
         
         # Metrics
@@ -243,6 +252,16 @@ class KafkaWebhookProducer:
         except Exception as dlq_error:
             logger.error(f"Failed to send message to DLQ: {dlq_error}")
     
+    def get_formatted_metrics(self) -> Dict[str, Any]:
+        """Return metrics with all datetime objects serialized to ISO strings"""
+        formatted = {}
+        for k, v in self.metrics.items():
+            if isinstance(v, datetime):
+                formatted[k] = v.isoformat()
+            else:
+                formatted[k] = v
+        return formatted
+
     def get_health(self) -> Dict[str, Any]:
         """Get service health status"""
         try:
@@ -253,14 +272,14 @@ class KafkaWebhookProducer:
                 'status': 'healthy',
                 'kafka_connected': metadata,
                 'topics': self.topics,
-                'metrics': self.metrics.copy(),
+                'metrics': self.get_formatted_metrics(),
                 'uptime_seconds': (datetime.now(timezone.utc) - self.metrics['start_time']).total_seconds()
             }
         except Exception as e:
             return {
                 'status': 'unhealthy',
                 'error': str(e),
-                'metrics': self.metrics.copy()
+                'metrics': self.get_formatted_metrics()
             }
     
     def shutdown(self):
@@ -291,10 +310,10 @@ async def startup_event():
     global kafka_producer
     
     # Configuration
-    brokers = ['localhost:29092', 'localhost:29093', 'localhost:29094']
+    brokers = settings.kafka_brokers
     config = {
-        'partitions': 3,
-        'replication_factor': 2,
+        'partitions': settings.kafka_partitions,
+        'replication_factor': settings.kafka_replication_factor,
         'producer': {
             'linger_ms': 20,
             'batch_size': 131072  # 128KB
@@ -399,7 +418,7 @@ async def get_metrics():
             status_code=503
         )
     
-    return JSONResponse(content=kafka_producer.metrics)
+    return JSONResponse(content=kafka_producer.get_formatted_metrics())
 
 @app.get("/topics")
 async def get_topics():
@@ -432,9 +451,9 @@ async def flush_producer():
 def main():
     """Run the FastAPI server"""
     uvicorn.run(
-        "Producer:app",
-        host="0.0.0.0",
-        port=8100,
+        app,
+        host=settings.producer_host,
+        port=settings.producer_port,
         reload=False,
         access_log=True,
         log_level="info",

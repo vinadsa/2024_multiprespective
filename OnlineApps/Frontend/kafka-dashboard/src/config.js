@@ -1,7 +1,7 @@
 // Central configuration for the GO-TR dashboard.
 
-export const DEFAULT_API_URL = 'http://localhost:8000';
-export const DEFAULT_WS_URL = 'ws://localhost:8000/ws';
+export const DEFAULT_API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+export const DEFAULT_WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws';
 
 export const DEFAULT_CONFIG = {
   mode: 'online',

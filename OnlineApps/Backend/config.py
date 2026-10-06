@@ -12,11 +12,18 @@ from pathlib import Path
 from typing import List, Optional
 
 BACKEND_DIR = Path(__file__).resolve().parent
+ROOT_DIR = BACKEND_DIR.parent.parent
 
 try:
     from dotenv import load_dotenv
 
-    load_dotenv(BACKEND_DIR / ".env", override=False)
+    # Load root .env if it exists, then backend .env to override
+    if (ROOT_DIR / ".env").exists():
+        load_dotenv(ROOT_DIR / ".env", override=False)
+    if (BACKEND_DIR / ".env").exists():
+        load_dotenv(BACKEND_DIR / ".env", override=True)
+    elif not (ROOT_DIR / ".env").exists():
+        load_dotenv(BACKEND_DIR / ".env", override=False)
 except ImportError:  # python-dotenv is optional
     pass
 
@@ -85,7 +92,7 @@ class Settings:
 
     # --- Case completion ---
     case_end_strategy: List[str] = field(default_factory=list)
-    case_idle_timeout_sec: int = 300
+    case_idle_timeout_sec: int = 30
     case_sweep_interval_sec: int = 15
 
     # --- Streamer ---
@@ -127,7 +134,7 @@ class Settings:
             case_end_strategy=[
                 s.lower() for s in _env_list("CASE_END_STRATEGY", "end_signal,final_marking")
             ],
-            case_idle_timeout_sec=_env_int("CASE_IDLE_TIMEOUT_SEC", 300),
+            case_idle_timeout_sec=_env_int("CASE_IDLE_TIMEOUT_SEC", 30),
             case_sweep_interval_sec=_env_int("CASE_SWEEP_INTERVAL_SEC", 15),
             producer_webhook_url=_env("PRODUCER_WEBHOOK_URL", "http://localhost:8100/events"),
             streamer_xes_files=_env_list("STREAMER_XES_FILES", "output_logv2test2.xes"),

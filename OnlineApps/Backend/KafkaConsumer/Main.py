@@ -1,4 +1,14 @@
 # consumer.py
+import sys
+from pathlib import Path
+
+# Ensure Backend root is in sys.path
+backend_dir = Path(__file__).resolve().parent.parent
+if str(backend_dir) not in sys.path:
+    sys.path.insert(0, str(backend_dir))
+
+from config import settings
+
 from kafka import KafkaConsumer
 import json
 import time
@@ -27,7 +37,6 @@ from typing import List, Dict
 import uuid
 from queue import Queue
 from collections import deque
-from pathlib import Path
 # Connection of Kafka
 class ConnectionManager:
     def __init__(self):
@@ -70,18 +79,17 @@ class GOTRKafkaConsumer:
     def __init__(self, kafka_config=None, neo4j_config=None):
         # Kafka configuration
         self.kafka_config = kafka_config or {
-            'bootstrap_servers': ['localhost:29092', 'localhost:29093', 'localhost:29094'],
-            'group_id': 'gotr_consumer_group_7',
+            'bootstrap_servers': settings.kafka_brokers,
+            'group_id': settings.kafka_group_id,
             'value_deserializer': lambda m: json.loads(m.decode('utf-8')),
             'key_deserializer': lambda m: m.decode('utf-8') if m else None
         }
         
-        
         # Neo4j configuration
         self.neo4j_config = neo4j_config or {
-            'uri': "neo4j://127.0.0.1:7687",
-            'user': "neo4j",
-            'password': "12345678"
+            'uri': settings.neo4j_uri,
+            'user': settings.neo4j_user,
+            'password': settings.neo4j_password
         }
 
         # FastAPI and WebSocket components
@@ -351,10 +359,11 @@ class GOTRKafkaConsumer:
                 try:
                     await asyncio.sleep(2.0)
                     now = time.time()
+                    timeout_sec = float(settings.case_idle_timeout_sec)
                     timed_out_cases = []
                     with consumer_instance.state_lock:
                         for p_id, meta in list(consumer_instance.case_metadata.items()):
-                            if now - meta.get("last_event_time", now) > 30.0:
+                            if now - meta.get("last_event_time", now) > timeout_sec:
                                 timed_out_cases.append(p_id)
 
                     for p_id in timed_out_cases:
@@ -366,11 +375,11 @@ class GOTRKafkaConsumer:
                         with consumer_instance.neo4j_lock:
                             fitness_summary = GO_TR.finalize_case(p_id, consumer_instance.session)
 
-                        print(f"⏱️ Case {p_id} timed out after 30s inactivity (Fitness: {fitness_summary.get('fitness')})")
+                        print(f"⏱️ Case {p_id} timed out after {int(timeout_sec)}s inactivity (Fitness: {fitness_summary.get('fitness')})")
                         consumer_instance.broadcast_case_lifecycle(p_id, "timeout", {
                             "fitness": fitness_summary.get("fitness", 0.0),
                             "recap": fitness_summary,
-                            "reason": "inactivity_timeout_30s"
+                            "reason": f"inactivity_timeout_{int(timeout_sec)}s"
                         })
                 except Exception as e:
                     print(f"Error checking inactivity timeouts: {e}")
@@ -492,11 +501,11 @@ class GOTRKafkaConsumer:
     def start_websocket_server(self):
         """Start the WebSocket server in a separate thread"""
         def run_server():
-            uvicorn.run(self.app, host="0.0.0.0", port=8000)
+            uvicorn.run(self.app, host=settings.consumer_host, port=settings.consumer_port)
 
         self.websocket_thread = Thread(target=run_server, daemon=True)
         self.websocket_thread.start()
-        print("WebSocket server started on http://0.0.0.0:8000")
+        print(f"WebSocket server started on http://{settings.consumer_host}:{settings.consumer_port}")
 
     def send_deviation_alert(self, alert_data):
         """Send deviation alert through WebSocket"""
@@ -618,8 +627,11 @@ class GOTRKafkaConsumer:
         # Get the path to the current script (Main.py)
         file_dir = Path(__file__).resolve().parent
 
-        # Navigate to the target CSV path from the script location
-        csv_path = (file_dir / '../../../process_mining/media/datacsv_repair.csv').resolve()
+        # Navigate to the target CSV path from settings or default fallback
+        if settings.model_source_path and settings.model_source_path.exists():
+            csv_path = settings.model_source_path
+        else:
+            csv_path = (file_dir / '../../../process_mining/media/datacsv_repair.csv').resolve()
 
         print(f"Resolved CSV path: {csv_path}")
         dataframe = pd.read_csv(csv_path, sep=';')
@@ -627,7 +639,12 @@ class GOTRKafkaConsumer:
         # Format dataframe
         start_time = datetime.now()
         dataframe['timestamp'] = pd.date_range(start=start_time, periods=len(dataframe), freq='15S')
-        dataframe = pm4py.format_dataframe(dataframe, case_id='case_id', activity_key='activity', timestamp_key='timestamp')
+        dataframe = pm4py.format_dataframe(
+            dataframe,
+            case_id=settings.model_case_col,
+            activity_key=settings.model_activity_col,
+            timestamp_key=settings.model_timestamp_col
+        )
         
         # Create event log and discover process model
         event_log = pm4py.convert_to_event_log(dataframe)
@@ -695,7 +712,7 @@ class GOTRKafkaConsumer:
             print(f"Continue mode: Resuming group_id: {current_kafka_config['group_id']}")
 
         self.consumer = KafkaConsumer(
-            'pm.test.events.raw',
+            settings.kafka_topic_events,
             **current_kafka_config,
             auto_offset_reset='latest',
             enable_auto_commit=True
