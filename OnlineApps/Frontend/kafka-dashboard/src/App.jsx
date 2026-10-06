@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import ConfigForm from './components/ConfigForm';
+import HeaderBar from './components/HeaderBar';
 import MonitorView from './components/MonitorView';
-import ThemeToggle from './components/ThemeToggle';
+import Sidebar from './components/Sidebar';
 import { BOOTSTRAP_TIMEOUT_MS, DEFAULT_CONFIG } from './config';
+import { useAlertStream } from './hooks/useAlertStream';
 import { useTheme } from './hooks/useTheme';
 import { fetchConfiguration } from './lib/api';
 import { clearStoredAlerts, loadStoredConfig, saveStoredConfig } from './lib/storage';
@@ -11,18 +13,91 @@ import './App.css';
 const getInitialConfig = () => ({ ...DEFAULT_CONFIG, ...loadStoredConfig() });
 
 /**
- * App shell. Phases:
- *  - checking:    ask the backend whether the consumer is already configured
- *  - configuring: show ConfigForm
- *  - monitoring:  show MonitorView (owns WebSocket + sync lifecycle)
+ * Connected Monitoring Shell (mounted once configured).
+ * Maintains background WebSocket connection across tab changes.
+ */
+function MonitoringWorkspace({ config, onReconfigure, theme, onToggleTheme }) {
+  const [activeTab, setActiveTab] = useState('monitor');
+  const [isSyncing, setIsSyncing] = useState(false);
+  const configFormRef = useRef(null);
+
+  const {
+    alerts,
+    stats,
+    activeCasesList,
+    connectionStatus,
+    statusMessage,
+    syncNow,
+    clearAlerts,
+  } = useAlertStream(config);
+
+  const handleSyncWithFeedback = useCallback(async () => {
+    setIsSyncing(true);
+    try {
+      await syncNow();
+    } finally {
+      setTimeout(() => setIsSyncing(false), 500);
+    }
+  }, [syncNow]);
+
+  return (
+    <div className="app-shell">
+      {/* Cupertino Native Sidebar (NO traffic lights) */}
+      <Sidebar
+        currentTab={activeTab}
+        onSelectTab={setActiveTab}
+        connectionStatus={connectionStatus}
+        engineMode={config.mode}
+        onSync={handleSyncWithFeedback}
+        isSyncing={isSyncing}
+      />
+
+      {/* Main App Workspace */}
+      <div className="app-workspace">
+        <HeaderBar
+          currentTab={activeTab}
+          title={activeTab === 'monitor' ? 'GO-TR Real-time Deviation Monitor' : 'Engine Settings'}
+          onReconfigure={() => setActiveTab('settings')}
+          onRevertDefaults={() => configFormRef.current?.revertToDefaults()}
+          theme={theme}
+          onToggleTheme={onToggleTheme}
+        />
+
+        <div className="app-content-scroll">
+          {activeTab === 'monitor' ? (
+            <MonitorView
+              alerts={alerts}
+              stats={stats}
+              activeCasesList={activeCasesList}
+              statusMessage={statusMessage}
+              clearAlerts={clearAlerts}
+            />
+          ) : (
+            <div className="settings-panel-container">
+              <ConfigForm
+                ref={configFormRef}
+                initialConfig={config}
+                onConfigured={(next) => {
+                  onReconfigure(next);
+                  setActiveTab('monitor');
+                }}
+              />
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * App Root Orchestrator
  */
 export default function App() {
   const { theme, toggleTheme } = useTheme();
   const [phase, setPhase] = useState('checking');
   const [config, setConfig] = useState(getInitialConfig);
 
-  // Resume monitoring after a page refresh if the backend is already configured,
-  // instead of forcing the user to re-POST /api/configure (which could reset data).
   useEffect(() => {
     const { apiUrl } = getInitialConfig();
     const controller = new AbortController();
@@ -52,7 +127,6 @@ export default function App() {
   }, []);
 
   const handleConfigured = (nextConfig) => {
-    // A backend reset wipes server-side alerts; drop the stale local cache too.
     if (nextConfig.conformance === 'reset') clearStoredAlerts();
     saveStoredConfig(nextConfig);
     setConfig(nextConfig);
@@ -61,21 +135,53 @@ export default function App() {
 
   return (
     <>
-      <ThemeToggle theme={theme} onToggle={toggleTheme} />
-
       {phase === 'checking' && (
         <main className="boot-screen" aria-busy="true">
+          <div className="boot-screen__logo" aria-hidden="true">
+            <svg width="48" height="48" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect width="36" height="36" rx="9" fill="var(--system-blue)" />
+              <circle cx="18" cy="18" r="10" stroke="white" strokeWidth="2" strokeOpacity="0.4" />
+              <circle cx="18" cy="18" r="6.2" stroke="white" strokeWidth="2" strokeOpacity="0.75" />
+              <circle cx="18" cy="18" r="2.8" fill="white" />
+            </svg>
+          </div>
           <span className="spinner spinner--accent" aria-hidden="true" />
-          <p>Connecting to GO-TR backend...</p>
+          <p className="boot-screen__text">Connecting to GO-TR Process Engine...</p>
         </main>
       )}
 
       {phase === 'configuring' && (
-        <ConfigForm initialConfig={config} onConfigured={handleConfigured} />
+        <div className="app-shell app-shell--unconfigured">
+          <Sidebar
+            currentTab="settings"
+            onSelectTab={() => {}}
+            connectionStatus="disconnected"
+            engineMode={config.mode}
+            onSync={() => {}}
+          />
+          <div className="app-workspace">
+            <HeaderBar
+              title="GO-TR Engine Configuration"
+              onReconfigure={() => {}}
+              theme={theme}
+              onToggleTheme={toggleTheme}
+            />
+            <div className="app-content-scroll">
+              <div className="settings-panel-container">
+                <ConfigForm initialConfig={config} onConfigured={handleConfigured} />
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {phase === 'monitoring' && (
-        <MonitorView config={config} onReconfigure={() => setPhase('configuring')} />
+        <MonitoringWorkspace
+          config={config}
+          onReconfigure={handleConfigured}
+          theme={theme}
+          onToggleTheme={toggleTheme}
+        />
       )}
     </>
   );

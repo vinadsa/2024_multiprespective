@@ -1,27 +1,24 @@
 import { useState } from 'react';
-import { MODE_LABELS } from '../config';
-import { useAlertStream } from '../hooks/useAlertStream';
 import { exportAlertsToCsv } from '../lib/exportCsv';
 import ActiveCasesTracker from './ActiveCasesTracker';
-import AlertList from './AlertList';
+import ConfirmModal from './ConfirmModal';
 import StatsBar from './StatsBar';
+import StreamAlertsSection from './StreamAlertsSection';
 
-const CONNECTION_LABELS = {
-  connecting: 'Connecting...',
-  connected: 'Connected',
-  disconnected: 'Disconnected - Reconnecting...',
-  error: 'Invalid WebSocket URL - please reconfigure',
-};
-
-export default function MonitorView({ config, onReconfigure }) {
-  const { alerts, stats, activeCasesList, connectionStatus, statusMessage, syncNow, clearAlerts } = useAlertStream(config);
+export default function MonitorView({
+  alerts = [],
+  stats = { totalAlerts: 0, criticalCount: 0, deviationCount: 0, activeCases: 0 },
+  activeCasesList = [],
+  statusMessage = null,
+  clearAlerts,
+}) {
   const [isTrackerOpen, setIsTrackerOpen] = useState(true);
   const [selectedCaseId, setSelectedCaseId] = useState(null);
+  const [isClearModalOpen, setIsClearModalOpen] = useState(false);
 
-  const handleClear = () => {
-    if (window.confirm('Are you sure you want to clear all alerts? This only affects your local view.')) {
-      clearAlerts();
-    }
+  const handleConfirmClear = () => {
+    clearAlerts();
+    setIsClearModalOpen(false);
   };
 
   const displayedAlerts = selectedCaseId
@@ -29,19 +26,15 @@ export default function MonitorView({ config, onReconfigure }) {
     : alerts;
 
   return (
-    <main className="monitor-container">
-      <h1 className="monitor-title">GO-TR Real-time Deviation Monitor</h1>
-
-      <div className={`status status--${connectionStatus}`} role="status">
-        {CONNECTION_LABELS[connectionStatus]}
-      </div>
-
+    <div className="monitor-view">
+      {/* 4 Metric Cards */}
       <StatsBar
         stats={stats}
         onToggleActiveCases={() => setIsTrackerOpen((prev) => !prev)}
         isExpanded={isTrackerOpen}
       />
 
+      {/* Section 1: Live Active Process Instances */}
       <ActiveCasesTracker
         activeCases={activeCasesList}
         isExpanded={isTrackerOpen}
@@ -50,44 +43,34 @@ export default function MonitorView({ config, onReconfigure }) {
         onSelectCase={setSelectedCaseId}
       />
 
-      <div className="mode-indicator">
-        Mode: <strong>{MODE_LABELS[config.mode] ?? config.mode}</strong>
-      </div>
-
-      <div className="toolbar">
-        <button type="button" id="clear-alerts" className="btn btn--danger" onClick={handleClear} disabled={alerts.length === 0}>
-          Clear All Alerts
-        </button>
-        <button type="button" id="export-alerts" className="btn btn--success" onClick={() => exportAlertsToCsv(displayedAlerts)} disabled={displayedAlerts.length === 0}>
-          Export Alerts
-        </button>
-        <button type="button" id="sync-alerts" className="btn" onClick={syncNow}>
-          Sync with Server
-        </button>
-        <button type="button" id="reconfigure" className="btn btn--secondary" onClick={onReconfigure}>
-          Reconfigure
-        </button>
-        {selectedCaseId && (
-          <button type="button" className="btn btn--secondary" onClick={() => setSelectedCaseId(null)}>
-            ✕ Reset Filter Case #{selectedCaseId}
-          </button>
-        )}
-      </div>
-
-      {selectedCaseId && (
-        <div className="filter-banner">
-          Menampilkan alert khusus <strong>Case #{selectedCaseId}</strong> ({displayedAlerts.length} dari {alerts.length} total alert).
-          <button type="button" className="btn-link" onClick={() => setSelectedCaseId(null)}>Tampilkan Semua</button>
-        </div>
-      )}
-
+      {/* Temporary toast status message if present */}
       {statusMessage && (
-        <div className={`sync-status${statusMessage.isError ? ' sync-status--error' : ''}`} role="status">
+        <div className={`status-toast ${statusMessage.isError ? 'status-toast--error' : ''}`} role="status">
           {statusMessage.message}
         </div>
       )}
 
-      <AlertList alerts={displayedAlerts} />
-    </main>
+      {/* Section 2: Stream Alerts */}
+      <StreamAlertsSection
+        alerts={displayedAlerts}
+        onClear={() => setIsClearModalOpen(true)}
+        onExport={() => exportAlertsToCsv(displayedAlerts)}
+        selectedCaseId={selectedCaseId}
+        onResetFilter={() => setSelectedCaseId(null)}
+      />
+
+      {/* Cupertino Native Confirmation Modal */}
+      <ConfirmModal
+        isOpen={isClearModalOpen}
+        title="Clear Stream Alerts?"
+        description={`Are you sure you want to clear ${displayedAlerts.length} ${displayedAlerts.length === 1 ? 'alert' : 'alerts'} from your local view? Real-time event streaming will continue uninterrupted.`}
+        note="Stored graph replay states and audit logs in Neo4j will not be deleted."
+        confirmText="Clear Alerts"
+        cancelText="Cancel"
+        confirmTone="danger"
+        onConfirm={handleConfirmClear}
+        onCancel={() => setIsClearModalOpen(false)}
+      />
+    </div>
   );
 }

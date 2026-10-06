@@ -33,33 +33,35 @@ export default function ActiveCasesTracker({
   onSelectCase,
 }) {
   return (
-    <section className={`active-cases-panel ${isExpanded ? 'active-cases-panel--open' : 'active-cases-panel--collapsed'}`}>
-      <div className="active-cases-panel__header" onClick={onToggleExpand} role="button" tabIndex={0}>
-        <div className="active-cases-panel__title-wrap">
-          <span className={`live-pulse-dot ${activeCases.length > 0 ? 'live-pulse-dot--active' : ''}`} />
-          <h2 className="active-cases-panel__title">Live Active Process Instances</h2>
-          <span className="active-cases-panel__badge">{activeCases.length}</span>
+    <section className="card-panel active-cases-panel" aria-label="Live Active Process Instances">
+      <div className="card-panel__header">
+        <div className="card-panel__title-wrap">
+          <h2 className="card-panel__title">Live Active Process Instances</h2>
+          {activeCases.length > 0 && (
+            <span className="card-panel__count-badge">{activeCases.length}</span>
+          )}
         </div>
         <button
           type="button"
-          className="active-cases-panel__toggle-btn"
+          className="card-panel__toggle-btn"
           aria-expanded={isExpanded}
-          aria-label={isExpanded ? 'Collapse active cases panel' : 'Expand active cases panel'}
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggleExpand();
-          }}
+          aria-label={isExpanded ? 'Collapse active cases' : 'Expand active cases'}
+          onClick={onToggleExpand}
         >
           {isExpanded ? '▲ Sembunyikan' : '▼ Tampilkan'}
         </button>
       </div>
 
       {isExpanded && (
-        <div className="active-cases-panel__content">
+        <div className="card-panel__body">
           {activeCases.length === 0 ? (
             <div className="active-cases-empty">
-              <span className="active-cases-empty__icon">💤</span>
-              <p>Tidak ada kasus proses yang sedang berjalan. Jalankan streamer log (<code>make streamer</code>) untuk memantau kasus secara langsung.</p>
+              <span className="active-cases-empty__zzz" aria-hidden="true">
+                z<sup>z<sup>z</sup></sup>
+              </span>
+              <p className="active-cases-empty__text">
+                Tidak ada kasus proses yang sedang berjalan. Jalankan streamer log ( <code>make streamer</code> ) untuk memantau kasus secara langsung.
+              </p>
             </div>
           ) : (
             <div className="active-cases-grid">
@@ -68,7 +70,9 @@ export default function ActiveCasesTracker({
                 return (
                   <article
                     key={c.case_id}
-                    className={`active-case-card ${c.has_deviations ? 'active-case-card--deviating' : 'active-case-card--conforming'} ${isSelected ? 'active-case-card--selected' : ''}`}
+                    className={`active-case-card ${
+                      c.has_deviations ? 'active-case-card--deviating' : 'active-case-card--conforming'
+                    } ${isSelected ? 'active-case-card--selected' : ''}`}
                   >
                     <div className="active-case-card__header">
                       <span className="active-case-card__id">Case #{c.case_id}</span>
