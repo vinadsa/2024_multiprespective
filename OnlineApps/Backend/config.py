@@ -137,7 +137,7 @@ class Settings:
             case_idle_timeout_sec=_env_int("CASE_IDLE_TIMEOUT_SEC", 30),
             case_sweep_interval_sec=_env_int("CASE_SWEEP_INTERVAL_SEC", 15),
             producer_webhook_url=_env("PRODUCER_WEBHOOK_URL", "http://localhost:8100/events"),
-            streamer_xes_files=_env_list("STREAMER_XES_FILES", "output_logv2test2.xes"),
+            streamer_xes_files=_env_list("STREAMER_XES_FILES", "data/output_logv2test2.xes"),
             streamer_mode=_env("STREAMER_MODE", "fixed_interval"),
             streamer_speed=_env_float("STREAMER_SPEED", 1.0),
             streamer_fixed_interval_ms=_env_int("STREAMER_FIXED_INTERVAL_MS", 5000),

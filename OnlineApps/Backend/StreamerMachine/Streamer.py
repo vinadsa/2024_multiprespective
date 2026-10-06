@@ -423,8 +423,12 @@ def main():
             resolved_paths.append(str(p))
         elif (Path(__file__).parent / f).is_file():
             resolved_paths.append(str(Path(__file__).parent / f))
+        elif (Path(__file__).parent / "data" / f).is_file():
+            resolved_paths.append(str(Path(__file__).parent / "data" / f))
         elif (backend_dir / f).is_file():
             resolved_paths.append(str(backend_dir / f))
+        elif (backend_dir / "StreamerMachine" / "data" / f).is_file():
+            resolved_paths.append(str(backend_dir / "StreamerMachine" / "data" / f))
         else:
             resolved_paths.append(f)
 
