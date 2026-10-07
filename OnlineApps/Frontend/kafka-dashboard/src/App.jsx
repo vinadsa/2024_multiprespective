@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import AlertDetailView from './components/AlertDetailView';
 import ConfigForm from './components/ConfigForm';
 import HeaderBar from './components/HeaderBar';
 import ModelView from './components/ModelView';
@@ -21,6 +22,7 @@ function MonitoringWorkspace({ config, onReconfigure, theme, onToggleTheme }) {
   const [activeTab, setActiveTab] = useState('monitor');
   const [isSyncing, setIsSyncing] = useState(false);
   const [selectedCaseId, setSelectedCaseId] = useState(null);
+  const [selectedAlert, setSelectedAlert] = useState(null);
   const configFormRef = useRef(null);
 
   const {
@@ -45,15 +47,21 @@ function MonitoringWorkspace({ config, onReconfigure, theme, onToggleTheme }) {
 
   const handleInspectCase = useCallback((caseId) => {
     setSelectedCaseId(caseId);
+    setSelectedAlert(null);
     setActiveTab('model');
   }, []);
+
+  const handleSelectTab = useCallback((tab) => {
+    if (selectedAlert) setSelectedAlert(null);
+    setActiveTab(tab);
+  }, [selectedAlert]);
 
   return (
     <div className="app-shell">
       {/* Cupertino Native Sidebar (NO traffic lights) */}
       <Sidebar
-        currentTab={activeTab}
-        onSelectTab={setActiveTab}
+        currentTab={selectedAlert ? 'monitor' : activeTab}
+        onSelectTab={handleSelectTab}
         connectionStatus={connectionStatus}
         engineMode={config.mode}
         onSync={handleSyncWithFeedback}
@@ -62,51 +70,69 @@ function MonitoringWorkspace({ config, onReconfigure, theme, onToggleTheme }) {
 
       {/* Main App Workspace */}
       <div className="app-workspace">
-        <HeaderBar
-          currentTab={activeTab}
-          title={activeTab === 'monitor' ? 'GO-TR Real-time Deviation Monitor' : 'Engine Settings'}
-          onReconfigure={() => setActiveTab('settings')}
-          onRevertDefaults={() => configFormRef.current?.revertToDefaults()}
-          theme={theme}
-          onToggleTheme={onToggleTheme}
-        />
-
-        <div className={`app-content-scroll ${activeTab === 'model' ? 'app-content-scroll--canvas' : ''}`}>
-          {activeTab === 'monitor' && (
-            <MonitorView
-              alerts={alerts}
-              stats={stats}
-              activeCasesList={activeCasesList}
-              statusMessage={statusMessage}
-              clearAlerts={clearAlerts}
-              onInspectCase={handleInspectCase}
-            />
-          )}
-
-          {activeTab === 'model' && (
-            <ModelView
-              apiUrl={config.apiUrl}
+        {selectedAlert ? (
+          <AlertDetailView
+            alert={selectedAlert}
+            apiUrl={config.apiUrl}
+            theme={theme}
+            onToggleTheme={onToggleTheme}
+            onBack={() => setSelectedAlert(null)}
+            onInspectLive={(caseId) => {
+              setSelectedCaseId(caseId);
+              setSelectedAlert(null);
+              setActiveTab('model');
+            }}
+          />
+        ) : (
+          <>
+            <HeaderBar
+              currentTab={activeTab}
+              title={activeTab === 'monitor' ? 'GO-TR Real-time Deviation Monitor' : 'Engine Settings'}
+              onReconfigure={() => setActiveTab('settings')}
+              onRevertDefaults={() => configFormRef.current?.revertToDefaults()}
               theme={theme}
-              selectedCaseId={selectedCaseId}
-              onSelectCase={setSelectedCaseId}
-              activeCasesList={activeCasesList}
-              latestLifecycleEvent={latestLifecycleEvent}
+              onToggleTheme={onToggleTheme}
             />
-          )}
 
-          {activeTab === 'settings' && (
-            <div className="settings-panel-container">
-              <ConfigForm
-                ref={configFormRef}
-                initialConfig={config}
-                onConfigured={(next) => {
-                  onReconfigure(next);
-                  setActiveTab('monitor');
-                }}
-              />
+            <div className={`app-content-scroll ${activeTab === 'model' ? 'app-content-scroll--canvas' : ''}`}>
+              {activeTab === 'monitor' && (
+                <MonitorView
+                  alerts={alerts}
+                  stats={stats}
+                  activeCasesList={activeCasesList}
+                  statusMessage={statusMessage}
+                  clearAlerts={clearAlerts}
+                  onInspectCase={handleInspectCase}
+                  onDrilldownAlert={setSelectedAlert}
+                />
+              )}
+
+              {activeTab === 'model' && (
+                <ModelView
+                  apiUrl={config.apiUrl}
+                  theme={theme}
+                  selectedCaseId={selectedCaseId}
+                  onSelectCase={setSelectedCaseId}
+                  activeCasesList={activeCasesList}
+                  latestLifecycleEvent={latestLifecycleEvent}
+                />
+              )}
+
+              {activeTab === 'settings' && (
+                <div className="settings-panel-container">
+                  <ConfigForm
+                    ref={configFormRef}
+                    initialConfig={config}
+                    onConfigured={(next) => {
+                      onReconfigure(next);
+                      setActiveTab('monitor');
+                    }}
+                  />
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          </>
+        )}
       </div>
     </div>
   );

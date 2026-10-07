@@ -12,6 +12,7 @@ export default function MonitorView({
   statusMessage = null,
   clearAlerts,
   onInspectCase = null,
+  onDrilldownAlert = null,
 }) {
   const [isTrackerOpen, setIsTrackerOpen] = useState(true);
   const [selectedCaseId, setSelectedCaseId] = useState(null);
@@ -61,6 +62,7 @@ export default function MonitorView({
         onResetFilter={() => setSelectedCaseId(null)}
         onInspectCase={onInspectCase}
         onSelectCase={setSelectedCaseId}
+        onDrilldownAlert={onDrilldownAlert}
       />
 
       {/* Cupertino Native Confirmation Modal */}

@@ -10,6 +10,7 @@ export default function StreamAlertsSection({
   onResetFilter,
   onInspectCase = null,
   onSelectCase = null,
+  onDrilldownAlert = null,
 }) {
   const [severityFilter, setSeverityFilter] = useState('all');
 
@@ -139,6 +140,7 @@ export default function StreamAlertsSection({
                 alert={alert}
                 onInspectCase={onInspectCase}
                 onSelectCase={onSelectCase}
+                onDrilldownAlert={onDrilldownAlert}
               />
             ))}
           </div>

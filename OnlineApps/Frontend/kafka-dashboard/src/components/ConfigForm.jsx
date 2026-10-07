@@ -46,7 +46,8 @@ const REPLAY_OPTIONS = [
     description:
       'Resume from where the engine stopped. Preserves all existing Replay Images in Neo4j, and reads Kafka strictly from last committed offset.',
     Icon: Play,
-    badge: 'INCREMENTAL',
+    // badge: 'INCREMENTAL',
+    badge: '',
     badgeTone: 'neutral',
     footerLabel: 'Preserves trace audit logs',
   },
@@ -116,12 +117,12 @@ const ConfigForm = forwardRef(function ConfigForm({ initialConfig, onConfigured 
       if (statusData && typeof statusData.is_running === 'boolean') {
         setFeedback({
           type: 'success',
-          message: `✅ Verifikasi Berhasil! Backend (${cleanApiUrl}) aktif & mode siap diterapkan.`,
+          message: `Verifikasi Berhasil! Backend (${cleanApiUrl}) aktif & mode siap diterapkan.`,
         });
       } else {
         setFeedback({
           type: 'success',
-          message: `✅ Server terjangkau pada ${cleanApiUrl}. Validasi konfigurasi sukses.`,
+          message: `Server terjangkau pada ${cleanApiUrl}. Validasi konfigurasi sukses.`,
         });
       }
     } catch (err) {
@@ -212,9 +213,7 @@ const ConfigForm = forwardRef(function ConfigForm({ initialConfig, onConfigured 
               {isAdvancedOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
             </span>
             <h2 className="accordion-title">Advanced Stream & Rule Engine Settings</h2>
-            <span className="accordion-badge">Kafka & Neo4j</span>
           </div>
-          <span className="accordion-hint">Low-latency stream tuning</span>
         </header>
 
         {isAdvancedOpen && (

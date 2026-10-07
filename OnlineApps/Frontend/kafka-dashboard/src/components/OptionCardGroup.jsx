@@ -71,7 +71,7 @@ export default function OptionCardGroup({
               {/* Card Footer: Metadata label & Radio Checkmark */}
               <div className="settings-card__footer">
                 <span className={`settings-card__footer-label ${checked ? 'settings-card__footer-label--active' : ''}`}>
-                  {opt.footerLabel}
+                  {/* {opt.footerLabel} */}
                 </span>
 
                 <span className={`settings-card__radio ${checked ? 'settings-card__radio--checked' : ''}`} aria-hidden="true">

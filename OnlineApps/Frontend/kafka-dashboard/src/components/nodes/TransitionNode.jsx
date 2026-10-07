@@ -1,8 +1,8 @@
 import { Handle, Position } from '@xyflow/react';
-import { Play, User } from 'lucide-react';
+import { AlertCircle, Play, User } from 'lucide-react';
 
 export default function TransitionNode({ data, targetPosition, sourcePosition }) {
-  const { label, role, team, isEnabled, isActive } = data;
+  const { label, role, team, isEnabled, isActive, isCulprit, isSelected } = data;
   const tPos = targetPosition === 'top' ? Position.Top : Position.Left;
   const sPos = sourcePosition === 'bottom' ? Position.Bottom : Position.Right;
 
@@ -10,12 +10,14 @@ export default function TransitionNode({ data, targetPosition, sourcePosition })
 
   return (
     <div
-      className={`petri-transition ${isEnabled ? 'petri-transition--enabled' : ''} ${
+      className={`petri-transition ${isCulprit ? 'petri-transition--culprit' : ''} ${
+        isSelected ? 'petri-transition--selected' : ''
+      } ${isEnabled ? 'petri-transition--enabled' : ''} ${
         isActive ? 'petri-transition--active' : ''
       }`}
-      title={`Transition: ${label}${role ? ` (${role})` : ''}${isEnabled ? ' [Enabled / Ready to fire]' : ''}${
-        isActive ? ' [Last executed]' : ''
-      }`}
+      title={`Transition: ${label}${role ? ` (${role})` : ''}${
+        isCulprit ? ' [Deviation Trigger Step]' : isEnabled ? ' [Enabled / Ready to fire]' : ''
+      }${isActive ? ' [Last executed]' : ''}`}
     >
       <Handle type="target" position={tPos} className="petri-handle" isConnectable={false} />
 
@@ -31,14 +33,21 @@ export default function TransitionNode({ data, targetPosition, sourcePosition })
           <span className="petri-transition__label">{label}</span>
         </div>
 
-        {isEnabled && (
+        {isCulprit && (
+          <div className="petri-transition__status petri-transition__status--culprit">
+            <AlertCircle size={8} aria-hidden="true" />
+            <span>DEVIATION</span>
+          </div>
+        )}
+
+        {isEnabled && !isCulprit && (
           <div className="petri-transition__status petri-transition__status--ready">
             <Play size={8} fill="currentColor" aria-hidden="true" />
             <span>READY</span>
           </div>
         )}
 
-        {isActive && !isEnabled && (
+        {isActive && !isEnabled && !isCulprit && (
           <div className="petri-transition__status petri-transition__status--fired">
             <span className="petri-transition__status-dot" />
             <span>LAST FIRED</span>
@@ -50,3 +59,4 @@ export default function TransitionNode({ data, targetPosition, sourcePosition })
     </div>
   );
 }
+

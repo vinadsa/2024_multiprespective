@@ -1123,12 +1123,23 @@ class GOTRKafkaConsumer:
             elif v_type == 'unknown_activity':
                 self.unknown_activities[p_id].append(v.get('activity'))
 
-    def _send_deviation_alert_async(self, p_id, deviation_details):
+    def _send_deviation_alert_async(self, p_id, deviation_details, marking_snapshot=None, fitness=None, enabled_transitions=None, actor=None, raw_event=None):
         """Send alert - call OUTSIDE locks"""
         # Read current scores with lock
         with self.state_lock:
             current_score = self.anomaly_scores[p_id]
-            recent_history = self.case_event_history[p_id][-5:]
+            full_history = list(self.case_event_history.get(p_id, []))
+
+        culprit_act = (
+            deviation_details.get('activity')
+            or (deviation_details.get('violations', [{}])[0].get('activity') if deviation_details.get('violations') else None)
+        )
+        culprit_actor = (
+            actor
+            or deviation_details.get('actor')
+            or deviation_details.get('resource')
+            or (deviation_details.get('violations', [{}])[0].get('actor') if deviation_details.get('violations') else None)
+        )
 
         # Prepare and send without lock
         alert_data = {
@@ -1139,8 +1150,14 @@ class GOTRKafkaConsumer:
             "violations": deviation_details.get('violations', []),
             "details": deviation_details,
             "cumulative_score": current_score,
-            "event_history": recent_history,
-            "message": f"Deviation detected in case {p_id}"
+            "event_history": full_history,
+            "message": f"Deviation detected in case {p_id}",
+            "marking_snapshot": marking_snapshot or {},
+            "fitness": fitness,
+            "enabled_transitions": enabled_transitions or [],
+            "culprit_activity": culprit_act,
+            "actor": culprit_actor,
+            "raw_event": raw_event
         }
 
         if current_score >= 1.5:
@@ -1256,11 +1273,7 @@ class GOTRKafkaConsumer:
                                 if p_id in self.case_metadata:
                                     self.case_metadata[p_id]["has_deviations"] = True
 
-                        # ✅ STEP 7: Send alerts outside lock
-                        if result['status'] == 'deviation':
-                            self._send_deviation_alert_async(p_id, result)
-
-                        # ✅ STEP 8: MUTLAK Process Termination via Petri Net Marking (NO CHEATING!)
+                        # ✅ STEP 7 & 8: MUTLAK Process Termination via Petri Net Marking (NO CHEATING!)
                         is_finished = False
                         fitness_summary = None
                         with self.neo4j_lock:
@@ -1275,8 +1288,21 @@ class GOTRKafkaConsumer:
                                 meta = self.case_metadata.pop(p_id, {})
 
                             total_miss = fitness_summary.get("missing", 0) if fitness_summary else 0
+                            fin_fitness = fitness_summary.get("fitness", 1.0) if fitness_summary else 1.0
+
+                            # Send alert with terminal marking snapshot
+                            if result['status'] == 'deviation':
+                                self._send_deviation_alert_async(
+                                    p_id, result,
+                                    marking_snapshot={"sink": {"token": 0, "missing": total_miss, "consumed": 1, "produced": 1, "is_final": True}},
+                                    fitness=fin_fitness,
+                                    enabled_transitions=[],
+                                    actor=kafka_event.get('resource'),
+                                    raw_event=kafka_event
+                                )
+
                             self.broadcast_case_lifecycle(p_id, "completed", {
-                                "fitness": fitness_summary.get("fitness", 1.0) if fitness_summary else 1.0,
+                                "fitness": fin_fitness,
                                 "last_activity": activity,
                                 "recap": fitness_summary,
                                 "total_missing_tokens": total_miss,
@@ -1340,6 +1366,17 @@ class GOTRKafkaConsumer:
                             with self.state_lock:
                                 if p_id in self.case_metadata:
                                     self.case_metadata[p_id]["missing_tokens"] = total_missing
+
+                            # Send alert with active marking snapshot
+                            if result['status'] == 'deviation':
+                                self._send_deviation_alert_async(
+                                    p_id, result,
+                                    marking_snapshot=marking_map,
+                                    fitness=current_fitness,
+                                    enabled_transitions=enabled_transitions,
+                                    actor=kafka_event.get('resource'),
+                                    raw_event=kafka_event
+                                )
 
                             self.broadcast_case_lifecycle(p_id, "progress", {
                                 "activity": activity,

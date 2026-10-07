@@ -77,21 +77,50 @@ function ViolationContext({ violation }) {
   );
 }
 
-function AlertCard({ alert, onInspectCase = null, onSelectCase = null }) {
+function AlertCard({
+  alert,
+  onInspectCase = null,
+  onSelectCase = null,
+  onDrilldownAlert = null,
+}) {
   const critical = isCritical(alert);
   const tone = critical ? 'critical' : 'deviation';
   const violations = getViolations(alert);
   const score = typeof alert.cumulative_score === 'number' ? alert.cumulative_score.toFixed(2) : '0.00';
 
+  const handleCardClick = (e) => {
+    // If the click was not on an interactive child button
+    if (onDrilldownAlert) {
+      onDrilldownAlert(alert);
+    }
+  };
+
+  const handleKeyDown = (e) => {
+    if (onDrilldownAlert && (e.key === 'Enter' || e.key === ' ')) {
+      e.preventDefault();
+      onDrilldownAlert(alert);
+    }
+  };
+
   return (
-    <article className={`alert-card alert-card--${tone}`}>
+    <article
+      className={`alert-card alert-card--${tone} ${onDrilldownAlert ? 'alert-card--clickable' : ''}`}
+      onClick={handleCardClick}
+      onKeyDown={handleKeyDown}
+      tabIndex={onDrilldownAlert ? 0 : undefined}
+      role={onDrilldownAlert ? 'button' : 'article'}
+      aria-label={`Audit Alert for Case ${alert.case_id}, score ${score}. Click to see details.`}
+    >
       {/* 1. Header Bar: Case ID, Timestamp, Score, Badge, and Action */}
       <header className="alert-card__header">
         <div className="alert-card__header-left">
           <button
             type="button"
             className="alert-card__case-pill"
-            onClick={() => onSelectCase?.(alert.case_id)}
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelectCase?.(alert.case_id);
+            }}
             title={`Filter alerts to Case #${alert.case_id}`}
           >
             <GitCommit size={13} aria-hidden="true" />
@@ -118,11 +147,29 @@ function AlertCard({ alert, onInspectCase = null, onSelectCase = null }) {
             <button
               type="button"
               className="alert-card__inspect-btn"
-              onClick={() => onInspectCase(alert.case_id)}
+              onClick={(e) => {
+                e.stopPropagation();
+                onInspectCase(alert.case_id);
+              }}
               title={`Inspect Case #${alert.case_id} in Petri Net Visualizer`}
             >
-              <span>Inspect</span>
+              <span>Petri Net</span>
               <ArrowUpRight size={13} aria-hidden="true" />
+            </button>
+          )}
+
+          {onDrilldownAlert && (
+            <button
+              type="button"
+              className="alert-card__drilldown-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDrilldownAlert(alert);
+              }}
+              title={`Open Case #${alert.case_id} details`}
+            >
+              <span>Details</span>
+              <ChevronRight size={13} aria-hidden="true" />
             </button>
           )}
         </div>
@@ -161,12 +208,12 @@ function AlertCard({ alert, onInspectCase = null, onSelectCase = null }) {
 
       {/* 3. System Diagnostic & Process Audit Trail (Footer) */}
       <footer className="alert-card__footer">
-        {alert.message && (
+        {/* {alert.message && (
           <div className="alert-card__diagnostic">
             <span className="alert-diag-label">Diagnostic:</span>
             <span className="alert-diag-text">{alert.message}</span>
           </div>
-        )}
+        )} */}
 
         {alert.event_history?.length > 0 && (
           <div className="alert-card__trail">

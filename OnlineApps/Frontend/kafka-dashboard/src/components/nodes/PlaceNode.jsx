@@ -14,7 +14,7 @@ export default function PlaceNode({ data, targetPosition, sourcePosition }) {
     <div
       className={`petri-place ${isStart ? 'petri-place--start' : ''} ${isEnd ? 'petri-place--end' : ''} ${
         hasToken ? 'petri-place--token-active' : ''
-      }`}
+      } ${hasMissing ? 'petri-place--missing' : ''}`}
       title={`Place: ${name}${isStart ? ' (Start Marking)' : ''}${isEnd ? ' (Final Marking)' : ''}${
         hasToken ? ` • Tokens: ${token}` : ''
       }${hasMissing ? ` • Missing: ${missing}` : ''}`}
