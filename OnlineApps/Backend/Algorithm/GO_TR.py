@@ -1200,7 +1200,8 @@ def finalize_case(p_id, session):
     
     fitness = 0.0
     if consumed > 0 and produced > 0:
-        fitness = (0.5 * (1 - (missing / consumed))) + (0.5 * (1 - (remained / produced)))
+        raw_fitness = (0.5 * (1 - (missing / consumed))) + (0.5 * (1 - (remained / produced)))
+        fitness = max(0.0, min(1.0, raw_fitness))
     
     recap['fitness'] = round(fitness, 4)
     print(f"✅ Case FINISHED: {p_id}, Fitness: {fitness:.2f}")

@@ -636,16 +636,22 @@ class GOTRKafkaConsumer:
                         "is_final": bool(p.get("is_final"))
                     }
 
-                calc_fitness = 1.0
-                if total_c > 0 and total_p > 0:
-                    calc_fitness = round((0.5 * (1 - (total_missing / total_c))) + (0.5 * (1 - (total_tokens / total_p))), 4)
-
                 enabled_transitions = [t["name"] for t in enabled_res]
 
                 with consumer_instance.state_lock:
                     is_active = str(case_id) in consumer_instance.active_cases
                     meta = consumer_instance.case_metadata.get(str(case_id), {})
                     anomaly_score = consumer_instance.anomaly_scores.get(str(case_id), 0.0)
+
+                calc_fitness = 1.0
+                if total_c > 0:
+                    if is_active:
+                        # Mid-stream running fitness: do not penalize valid in-flight tokens
+                        raw_fit = 1.0 - (total_missing / total_c)
+                    else:
+                        # Completed/timed-out case: penalize leftover tokens
+                        raw_fit = (0.5 * (1 - (total_missing / total_c))) + (0.5 * (1 - (total_tokens / total_p))) if total_p > 0 else 0.0
+                    calc_fitness = max(0.0, min(1.0, round(raw_fit, 4)))
 
                 return {
                     "status": "success",
@@ -1348,8 +1354,10 @@ class GOTRKafkaConsumer:
 
                                     current_marking = [k for k, v in marking_map.items() if v["token"] > 0]
 
-                                    if total_c > 0 and total_p > 0:
-                                        current_fitness = round((0.5 * (1 - (total_missing / total_c))) + (0.5 * (1 - (total_active / total_p))), 4)
+                                    if total_c > 0:
+                                        # In-flight running fitness: evaluate observed transitions without penalizing valid in-flight tokens
+                                        raw_fit = 1.0 - (total_missing / total_c)
+                                        current_fitness = max(0.0, min(1.0, round(raw_fit, 4)))
 
                                     q_enabled = """
                                         MATCH (p:Place)-[:Arc]->(t:Transition)
